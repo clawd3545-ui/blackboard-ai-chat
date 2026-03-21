@@ -26,25 +26,25 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // Refresh session if expired — important for server components
   const { data: { session } } = await supabase.auth.getSession();
-
   const { pathname } = request.nextUrl;
 
-  // Protect dashboard routes
+  // Redirect root
+  if (pathname === "/") {
+    return NextResponse.redirect(new URL(session ? "/dashboard" : "/login", request.url));
+  }
+
+  // Protect dashboard
   if (pathname.startsWith("/dashboard") && !session) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const redirectUrl = new URL("/login", request.url);
+    redirectUrl.searchParams.set("redirectTo", pathname);
+    return NextResponse.redirect(redirectUrl);
   }
 
   // Redirect logged-in users away from login
   if (pathname === "/login" && session) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
-  // Redirect root to dashboard or login
-  if (pathname === "/") {
-    return NextResponse.redirect(
-      new URL(session ? "/dashboard" : "/login", request.url)
-    );
   }
 
   return response;

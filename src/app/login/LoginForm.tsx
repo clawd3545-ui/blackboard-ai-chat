@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Mail, Lock, UserPlus, LogIn, Bot, AlertCircle } from "lucide-react";
+import { Loader2, Mail, Lock, UserPlus, LogIn, Bot, AlertCircle, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,9 +21,14 @@ export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const redirectTo = searchParams.get("redirectTo") || "/dashboard";
+  const urlError = searchParams.get("error");
+
+  useEffect(() => {
+    if (urlError) setError(decodeURIComponent(urlError));
+  }, [urlError]);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -31,22 +36,17 @@ export default function LoginForm() {
       if (session) router.push(redirectTo);
     };
     checkSession();
+    // Listen for auth state changes (e.g. after OAuth)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session) router.push(redirectTo);
+    });
+    return () => subscription.unsubscribe();
   }, [router, redirectTo, supabase]);
 
-  useEffect(() => { setError(null); }, [email, password, activeTab]);
-
-  const validateForm = (): boolean => {
-    if (!email.trim()) { setError("Email is required"); return false; }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) { setError("Please enter a valid email address"); return false; }
-    if (!password) { setError("Password is required"); return false; }
-    if (password.length < 6) { setError("Password must be at least 6 characters"); return false; }
-    return true;
-  };
+  useEffect(() => { setError(null); setSuccess(null); }, [email, password, activeTab]);
 
   const handleGoogleLogin = async () => {
-    setIsGoogleLoading(true);
-    setError(null);
+    setIsGoogleLoading(true); setError(null);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -62,37 +62,49 @@ export default function LoginForm() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) return;
+    if (!email.trim()) { setError("Email is required"); return; }
+    if (!password) { setError("Password is required"); return; }
     setIsLoading(true); setError(null);
     try {
-      const response = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/login", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password, action: "login" }),
       });
-      const data = await response.json();
-      if (!response.ok) { setError(data.error || "Login failed"); return; }
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Login failed"); return; }
       if (data.session) {
         await supabase.auth.setSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+        router.push(redirectTo);
       }
-      router.push(redirectTo);
     } catch { setError("An unexpected error occurred."); }
     finally { setIsLoading(false); }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) return;
+    if (!email.trim()) { setError("Email is required"); return; }
+    if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
     setIsLoading(true); setError(null);
     try {
-      const response = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/login", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password, action: "signup" }),
       });
-      const data = await response.json();
-      if (!response.ok) { setError(data.error || "Signup failed"); return; }
-      setSuccessMessage(data.message || "Account created! Please check your email.");
-      setEmail(""); setPassword("");
-      setTimeout(() => { setActiveTab("login"); setSuccessMessage(null); }, 3000);
+      const data = await res.json();
+      if (!res.ok) {
+        // If already exists, switch to login tab
+        if (res.status === 409) { setError(data.error); setActiveTab("login"); return; }
+        setError(data.error || "Signup failed"); return;
+      }
+      // If session returned (email confirmation disabled), go to dashboard
+      if (data.session) {
+        await supabase.auth.setSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+        router.push(redirectTo);
+      } else {
+        setSuccess("Account created! Please check your email and click the confirmation link, then come back to log in.");
+        setEmail(""); setPassword("");
+        setTimeout(() => setActiveTab("login"), 3000);
+      }
     } catch { setError("An unexpected error occurred."); }
     finally { setIsLoading(false); }
   };
@@ -109,17 +121,10 @@ export default function LoginForm() {
         </div>
 
         <div className="bg-card border rounded-lg shadow-sm">
-          {/* Google Sign In */}
-          <div className="p-6 pb-0">
-            <Button
-              onClick={handleGoogleLogin}
-              disabled={isGoogleLoading}
-              variant="outline"
-              className="w-full flex items-center gap-3 h-11"
-            >
-              {isGoogleLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
+          {/* Google */}
+          <div className="p-6 pb-3">
+            <Button onClick={handleGoogleLogin} disabled={isGoogleLoading} variant="outline" className="w-full h-11 flex items-center gap-3">
+              {isGoogleLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
                 <svg className="h-5 w-5" viewBox="0 0 24 24">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                   <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -131,32 +136,34 @@ export default function LoginForm() {
             </Button>
           </div>
 
-          {/* Divider */}
-          <div className="flex items-center gap-3 px-6 py-4">
+          <div className="flex items-center gap-3 px-6 py-2">
             <div className="flex-1 h-px bg-border" />
-            <span className="text-xs text-muted-foreground">or continue with email</span>
+            <span className="text-xs text-muted-foreground">or use email</span>
             <div className="flex-1 h-px bg-border" />
           </div>
 
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "login" | "signup")}>
-            <TabsList className="grid w-full grid-cols-2 mx-6" style={{width: 'calc(100% - 3rem)'}}>
-              <TabsTrigger value="login" className="flex items-center gap-2"><LogIn className="h-4 w-4" />Login</TabsTrigger>
-              <TabsTrigger value="signup" className="flex items-center gap-2"><UserPlus className="h-4 w-4" />Sign Up</TabsTrigger>
-            </TabsList>
+            <div className="px-6 pt-2">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="login"><LogIn className="h-4 w-4 mr-2" />Login</TabsTrigger>
+                <TabsTrigger value="signup"><UserPlus className="h-4 w-4 mr-2" />Sign Up</TabsTrigger>
+              </TabsList>
+            </div>
 
             {error && (
-              <div className="mx-6 mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md flex items-start gap-2">
+              <div className="mx-6 mt-3 p-3 bg-destructive/10 border border-destructive/20 rounded-md flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
                 <p className="text-sm text-destructive">{error}</p>
               </div>
             )}
-            {successMessage && (
-              <div className="mx-6 mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
-                <p className="text-sm text-green-700">{successMessage}</p>
+            {success && (
+              <div className="mx-6 mt-3 p-3 bg-green-50 border border-green-200 rounded-md flex items-start gap-2">
+                <CheckCircle className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                <p className="text-sm text-green-700">{success}</p>
               </div>
             )}
 
-            <TabsContent value="login" className="p-6 pt-4">
+            <TabsContent value="login" className="p-6 pt-3">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="login-email">Email</Label>
@@ -178,7 +185,7 @@ export default function LoginForm() {
               </form>
             </TabsContent>
 
-            <TabsContent value="signup" className="p-6 pt-4">
+            <TabsContent value="signup" className="p-6 pt-3">
               <form onSubmit={handleSignup} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="signup-email">Email</Label>
@@ -193,7 +200,7 @@ export default function LoginForm() {
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input id="signup-password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} className="pl-10" disabled={isLoading} />
                   </div>
-                  <p className="text-xs text-muted-foreground">Password must be at least 6 characters</p>
+                  <p className="text-xs text-muted-foreground">At least 6 characters</p>
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating account...</> : <><UserPlus className="h-4 w-4 mr-2" />Create Account</>}
@@ -203,7 +210,7 @@ export default function LoginForm() {
           </Tabs>
         </div>
 
-        <div className="mt-8 grid grid-cols-3 gap-4 text-center">
+        <div className="mt-6 grid grid-cols-3 gap-4 text-center">
           <div className="p-4 rounded-lg bg-card border"><div className="text-2xl">🔒</div><p className="text-xs text-muted-foreground mt-1">Encrypted Keys</p></div>
           <div className="p-4 rounded-lg bg-card border"><div className="text-2xl">🧠</div><p className="text-xs text-muted-foreground mt-1">Smart Context</p></div>
           <div className="p-4 rounded-lg bg-card border"><div className="text-2xl">⚡</div><p className="text-xs text-muted-foreground mt-1">Streaming</p></div>
