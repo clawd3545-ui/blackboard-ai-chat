@@ -93,8 +93,10 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
 
   const createConversation = async (firstMessage: string): Promise<string> => {
     const title = firstMessage.slice(0, 60) + (firstMessage.length > 60 ? "..." : "");
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("Not authenticated");
     const { data, error } = await supabase.from("conversations")
-      .insert({ title, model: selectedModel, provider: selectedProvider }).select().single();
+      .insert({ title, model: selectedModel, provider: selectedProvider, user_id: session.user.id }).select().single();
     if (error) throw error;
     setCurrentConversationId(data.id);
     onConversationCreated?.(data.id, title);
