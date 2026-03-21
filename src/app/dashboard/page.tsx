@@ -2,51 +2,82 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, Plus, Settings, LogOut, MessageSquare, Trash2, Loader2, User } from "lucide-react";
+import {
+  Plus, Settings, LogOut, MessageSquare, Trash2, Loader2,
+  User, Sun, Moon, Menu, X, Brain, ChevronDown,
+  Sparkles, Zap, Shield
+} from "lucide-react";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { createBrowserClient } from "@/lib/supabase";
 import ChatInterface from "@/components/ChatInterface";
 import SettingsDialog from "@/components/Settings";
+import { PROVIDERS, type ProviderId } from "@/lib/providers";
 
 interface Conversation { id: string; title: string; created_at: string; updated_at: string; }
-interface UserProfile { id: string; email: string; full_name: string | null; }
+interface UserProfile { id: string; email: string; full_name: string | null; avatar_url?: string | null; }
+
+// Format date for sidebar
+function formatTime(dateStr: string) {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  if (diff < 60000) return "just now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// Group conversations by date
+function groupConversations(convs: Conversation[]) {
+  const groups: Record<string, Conversation[]> = {};
+  const now = new Date();
+  convs.forEach(c => {
+    const d = new Date(c.updated_at);
+    const diff = now.getTime() - d.getTime();
+    let label = "Older";
+    if (diff < 86400000) label = "Today";
+    else if (diff < 172800000) label = "Yesterday";
+    else if (diff < 604800000) label = "Last 7 days";
+    else if (diff < 2592000000) label = "Last 30 days";
+    if (!groups[label]) groups[label] = [];
+    groups[label].push(c);
+  });
+  return groups;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const supabase = createBrowserClient();
+  const { theme, setTheme } = useTheme();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | undefined>();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
-      // Get session from the SSR client (reads from cookies)
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
+      if (!session) { router.replace("/login"); return; }
       setUser({
         id: session.user.id,
         email: session.user.email || "",
         full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || null,
+        avatar_url: session.user.user_metadata?.avatar_url || null,
       });
       await loadConversations();
       setIsLoading(false);
     };
     init();
-
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_OUT" || !session) {
-        router.replace("/login");
-      }
+      if (event === "SIGNED_OUT" || !session) router.replace("/login");
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -66,93 +97,166 @@ export default function DashboardPage() {
     setSelectedConversationId(id);
   }, []);
 
-  const handleConversationDeleted = useCallback((id: string) => {
+  const handleDeleteConversation = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setDeletingId(id);
+    await supabase.from("conversations").delete().eq("id", id);
     setConversations(prev => prev.filter(c => c.id !== id));
     setSelectedConversationId(curr => curr === id ? undefined : curr);
-  }, []);
-
-  const handleDeleteConversation = async (e: React.MouseEvent, conversationId: string) => {
-    e.stopPropagation();
-    if (!confirm("Delete this conversation?")) return;
-    await supabase.from("conversations").delete().eq("id", conversationId);
-    handleConversationDeleted(conversationId);
+    setDeletingId(null);
   };
+
+  const userInitial = (user?.full_name?.[0] || user?.email?.[0] || "U").toUpperCase();
+  const grouped = groupConversations(conversations);
+  const groupOrder = ["Today", "Yesterday", "Last 7 days", "Last 30 days", "Older"];
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="flex flex-col items-center gap-3">
+          <Brain className="h-10 w-10 text-primary animate-pulse" />
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      <aside className={cn("flex flex-col border-r bg-muted/30 transition-all duration-300", isSidebarOpen ? "w-64" : "w-0 overflow-hidden")}>
-        <div className="flex items-center justify-between p-4 border-b">
-          <h1 className="font-semibold text-lg truncate">Blackboard AI</h1>
-          <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(false)} className="shrink-0"><Menu className="h-4 w-4" /></Button>
-        </div>
-        <div className="p-4">
-          <Button onClick={() => setSelectedConversationId(undefined)} className="w-full" variant="outline">
-            <Plus className="h-4 w-4 mr-2" />New Chat
-          </Button>
-        </div>
-        <ScrollArea className="flex-1">
-          <div className="px-2 space-y-1">
-            {conversations.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No conversations yet</p>
-              </div>
-            ) : conversations.map((conversation) => (
-              <button key={conversation.id} onClick={() => setSelectedConversationId(conversation.id)}
-                className={cn("w-full flex items-center justify-between p-3 rounded-md text-left transition-colors group",
-                  selectedConversationId === conversation.id ? "bg-primary text-primary-foreground" : "hover:bg-muted")}>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{conversation.title}</p>
-                  <p className={cn("text-xs", selectedConversationId === conversation.id ? "text-primary-foreground/70" : "text-muted-foreground")}>
-                    {formatRelativeTime(conversation.updated_at)}
-                  </p>
-                </div>
-                <Button variant="ghost" size="icon" onClick={(e) => handleDeleteConversation(e, conversation.id)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </button>
-            ))}
+    <div className="flex h-screen bg-background overflow-hidden">
+
+      {/* SIDEBAR */}
+      <aside className={cn(
+        "flex flex-col bg-muted/20 border-r border-border transition-all duration-200 shrink-0",
+        sidebarOpen ? "w-60" : "w-0 overflow-hidden"
+      )}>
+        {/* Logo + toggle */}
+        <div className="flex items-center justify-between px-3 py-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
+              <Brain className="h-4 w-4 text-primary-foreground" />
+            </div>
+            <span className="font-semibold text-sm">Blackboard AI</span>
           </div>
+          <button onClick={() => setSidebarOpen(false)} className="p-1 rounded hover:bg-muted text-muted-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* New Chat button */}
+        <div className="px-3 py-2">
+          <button
+            onClick={() => setSelectedConversationId(undefined)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium hover:bg-muted transition-colors text-foreground"
+          >
+            <Plus className="h-4 w-4 shrink-0" />
+            New Chat
+          </button>
+        </div>
+
+        {/* Conversation list */}
+        <ScrollArea className="flex-1 px-2">
+          {conversations.length === 0 ? (
+            <div className="py-10 text-center">
+              <MessageSquare className="h-6 w-6 mx-auto mb-2 text-muted-foreground opacity-40" />
+              <p className="text-xs text-muted-foreground">No conversations yet</p>
+            </div>
+          ) : (
+            <div className="pb-2">
+              {groupOrder.map(label => {
+                const group = grouped[label];
+                if (!group) return null;
+                return (
+                  <div key={label} className="mb-3">
+                    <p className="px-3 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      {label}
+                    </p>
+                    {group.map(conv => (
+                      <button
+                        key={conv.id}
+                        onClick={() => setSelectedConversationId(conv.id)}
+                        className={cn(
+                          "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm group transition-colors",
+                          selectedConversationId === conv.id
+                            ? "bg-primary/10 text-foreground"
+                            : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                        <span className="flex-1 truncate text-[13px]">{conv.title}</span>
+                        <button
+                          onClick={(e) => handleDeleteConversation(e, conv.id)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-destructive shrink-0"
+                        >
+                          {deletingId === conv.id
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <Trash2 className="h-3 w-3" />
+                          }
+                        </button>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </ScrollArea>
-        <div className="p-4 border-t space-y-2">
-          <div className="flex items-center gap-2 px-2 py-2">
-            <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center shrink-0">
-              <User className="h-4 w-4 text-primary-foreground" />
-            </div>
+
+        {/* Bottom: user + settings */}
+        <div className="border-t border-border p-2 space-y-1">
+          <button onClick={() => setIsSettingsOpen(true)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+            <Settings className="h-4 w-4 shrink-0" />API Keys
+          </button>
+          <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+            {theme === "dark" ? <Sun className="h-4 w-4 shrink-0" /> : <Moon className="h-4 w-4 shrink-0" />}
+            {theme === "dark" ? "Light mode" : "Dark mode"}
+          </button>
+          <div className="flex items-center gap-2 px-3 py-2 mt-1 rounded-lg">
+            {user?.avatar_url
+              ? <img src={user.avatar_url} className="h-7 w-7 rounded-full object-cover shrink-0" alt="" />
+              : <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center shrink-0 text-xs font-bold text-primary">{userInitial}</div>
+            }
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{user?.full_name || user?.email}</p>
-              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+              <p className="text-xs font-medium truncate text-foreground">{user?.full_name || user?.email?.split("@")[0]}</p>
             </div>
+            <button onClick={handleLogout} className="p-1 rounded hover:bg-muted text-muted-foreground" title="Logout">
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
           </div>
-          <Button variant="outline" className="w-full justify-start" onClick={() => setIsSettingsOpen(true)}>
-            <Settings className="h-4 w-4 mr-2" />Settings
-          </Button>
-          <Button variant="outline" className="w-full justify-start text-destructive hover:text-destructive" onClick={handleLogout}>
-            <LogOut className="h-4 w-4 mr-2" />Logout
-          </Button>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0">
-        {!isSidebarOpen && (
-          <div className="flex items-center gap-2 p-4 border-b">
-            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(true)}><Menu className="h-4 w-4" /></Button>
-            <h1 className="font-semibold">Blackboard AI Chat</h1>
+      {/* MAIN AREA */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar when sidebar closed */}
+        {!sidebarOpen && (
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-border shrink-0">
+            <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+              <Menu className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="h-6 w-6 rounded bg-primary flex items-center justify-center">
+                <Brain className="h-3.5 w-3.5 text-primary-foreground" />
+              </div>
+              <span className="font-semibold text-sm">Blackboard AI</span>
+            </div>
+            <div className="flex-1" />
+            <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
           </div>
         )}
+
         <div className="flex-1 min-h-0">
-          <ChatInterface conversationId={selectedConversationId} onConversationCreated={handleConversationCreated} />
+          <ChatInterface
+            conversationId={selectedConversationId}
+            onConversationCreated={handleConversationCreated}
+            onNewChat={() => setSelectedConversationId(undefined)}
+          />
         </div>
       </main>
+
       <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
     </div>
   );

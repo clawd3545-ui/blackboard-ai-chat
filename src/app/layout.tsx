@@ -1,18 +1,19 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
-  title: "Blackboard AI Chat - Secure AI Conversations",
-  description: "A secure, privacy-focused chat application with conversation summarization and encrypted API key storage.",
-  keywords: ["AI", "Chat", "OpenAI", "GPT", "Secure", "Encrypted", "Privacy"],
+  title: "Blackboard AI — Multi-Model Chat with Smart Memory",
+  description: "BYOK AI chat with Blackboard memory compression. Use OpenAI, Claude, Gemini, DeepSeek, or Groq. Save 60-90% tokens automatically.",
+  keywords: ["AI", "Chat", "OpenAI", "Claude", "Gemini", "DeepSeek", "Groq", "BYOK", "Token Saving"],
   authors: [{ name: "Blackboard AI" }],
   robots: "index, follow",
   openGraph: {
     type: "website",
     locale: "en_US",
-    title: "Blackboard AI Chat",
-    description: "Secure AI conversations with context awareness",
-    siteName: "Blackboard AI Chat",
+    title: "Blackboard AI",
+    description: "Multi-model AI chat with automatic memory compression",
+    siteName: "Blackboard AI",
   },
 };
 
@@ -22,13 +23,13 @@ export const viewport: Viewport = {
   maximumScale: 1,
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="font-sans antialiased">
-        {children}
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
