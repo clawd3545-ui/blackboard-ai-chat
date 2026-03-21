@@ -6,12 +6,10 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/dashboard";
   const error = searchParams.get("error");
-  const errorDescription = searchParams.get("error_description");
 
-  // Handle OAuth errors
   if (error) {
-    console.error("OAuth error:", error, errorDescription);
-    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(errorDescription || error)}`);
+    const desc = searchParams.get("error_description") || error;
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(desc)}`);
   }
 
   if (code) {
@@ -22,25 +20,17 @@ export async function GET(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return request.cookies.get(name)?.value;
-          },
-          set(name: string, value: string, options: CookieOptions) {
-            response.cookies.set({ name, value, ...options });
-          },
-          remove(name: string, options: CookieOptions) {
-            response.cookies.set({ name, value: "", ...options });
-          },
+          get(name: string) { return request.cookies.get(name)?.value; },
+          set(name: string, value: string, options: CookieOptions) { response.cookies.set({ name, value, ...options }); },
+          remove(name: string, options: CookieOptions) { response.cookies.set({ name, value: "", ...options }); },
         },
       }
     );
 
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-    if (!exchangeError) {
-      return response;
-    }
-    console.error("Code exchange error:", exchangeError);
+    if (!exchangeError) return response;
+    console.error("Auth callback error:", exchangeError.message);
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth_failed`);
+  return NextResponse.redirect(`${origin}/login?error=Authentication+failed.+Please+try+again.`);
 }
