@@ -9,7 +9,9 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) { return request.cookies.get(name)?.value; },
+        get(name: string) {
+          return request.cookies.get(name)?.value;
+        },
         set(name: string, value: string, options: CookieOptions) {
           request.cookies.set({ name, value, ...options });
           response = NextResponse.next({ request: { headers: request.headers } });
@@ -24,25 +26,24 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // IMPORTANT: Always call getUser() not getSession() — getUser() validates the JWT with Supabase
-  const { data: { user } } = await supabase.auth.getUser();
+  // Use getSession() NOT getUser() for middleware
+  // getUser() makes a live HTTP call to Supabase which is slow/unreliable from edge
+  // getSession() validates the JWT locally - fast and reliable for route protection
+  const { data: { session } } = await supabase.auth.getSession();
 
   const { pathname } = request.nextUrl;
 
-  // Redirect root to dashboard or login
   if (pathname === "/") {
-    return NextResponse.redirect(new URL(user ? "/dashboard" : "/login", request.url));
+    return NextResponse.redirect(new URL(session ? "/dashboard" : "/login", request.url));
   }
 
-  // Protect /dashboard — redirect to login if not authenticated
-  if (pathname.startsWith("/dashboard") && !user) {
+  if (pathname.startsWith("/dashboard") && !session) {
     const url = new URL("/login", request.url);
     url.searchParams.set("redirectTo", pathname);
     return NextResponse.redirect(url);
   }
 
-  // Redirect already-logged-in users away from login page
-  if (pathname === "/login" && user) {
+  if (pathname === "/login" && session) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
