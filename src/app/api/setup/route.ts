@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST(request: NextRequest) {
-  const { pat } = await request.json();
-  if (!pat) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const pat = searchParams.get('pat');
+  if (!pat || !pat.startsWith('sbp_')) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const PROJECT = 'hpvcfizzwljhrioacykn';
-
   const res = await fetch(`https://api.supabase.com/v1/projects/${PROJECT}/config/auth`, {
     method: 'PATCH',
     headers: { 'Authorization': `Bearer ${pat}`, 'Content-Type': 'application/json' },
@@ -20,5 +20,5 @@ export async function POST(request: NextRequest) {
   });
 
   const data = await res.json();
-  return NextResponse.json({ http_status: res.status, site_url: data.site_url, autoconfirm: data.mailer_autoconfirm, google: data.external_google_enabled, error: data.message || null });
+  return NextResponse.json({ status: res.status, site_url: data.site_url, autoconfirm: data.mailer_autoconfirm, google: data.external_google_enabled, error: data.message || null });
 }
