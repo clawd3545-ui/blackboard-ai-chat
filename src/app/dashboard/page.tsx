@@ -150,7 +150,7 @@ export default function DashboardPage() {
           </div>
         )}
         <div className="flex-1 min-h-0">
-          <ChatInterface conversationId={selectedConversationId} onConversationCreated={handleConversationCreated} onConversationDeleted={handleConversationDeleted} />
+          <ChatInterface conversationId={selectedConversationId} onConversationCreated={handleConversationCreated} />
         </div>
       </main>
       <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
