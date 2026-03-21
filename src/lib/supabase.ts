@@ -3,9 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 // ============================================
-// BROWSER CLIENT — uses @supabase/ssr so sessions
-// are stored in COOKIES (readable by middleware)
-// NOT localStorage (invisible to middleware)
+// BROWSER CLIENT — cookie-based sessions
 // ============================================
 export function createBrowserClient() {
   return createSSRBrowserClient(
@@ -40,4 +38,17 @@ export function createServiceRoleClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
+}
+
+// ============================================
+// AUTH HELPER — verifies user server-side
+// USE THIS in API routes instead of getSession()
+// getSession() trusts client-side cookie data (insecure)
+// getUser() verifies JWT with Supabase auth server (secure)
+// ============================================
+export async function getAuthUser(request: NextRequest, response: NextResponse) {
+  const supabase = createRouteHandlerClient(request, response);
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return null;
+  return user;
 }
