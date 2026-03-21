@@ -8,20 +8,24 @@ import {
   getUserMessageCount,
   getConversationContext,
   estimateMessagesTokenCount,
+  MAX_RECENT_MESSAGES,
 } from '@/lib/blackboard';
 
 // ============================================
 // CHAT API — Blackboard Context Assembly
 //
 // THE CORE BLACKBOARD PATTERN:
-// Instead of sending all 5000 words of chat history,
-// we send: [system + summary] + [only recent messages]
 //
-// Example with 30 messages:
-// - Messages 1-20: summarized into ~300 words ✓
-// - Messages 21-30: sent as-is (recent context) ✓
-// - Total tokens sent: ~500 instead of ~8000
-// - Savings: ~94%
+// Without Blackboard (message 20):
+//   Send: all 20 messages = ~8000 tokens
+//
+// With Blackboard (message 20):
+//   Send: summary (300 tokens) + last 8 msgs (1600 tokens) = ~1900 tokens
+//   Savings: ~76% = real money for the user
+//
+// After this response: check if we need to summarize
+// If yes: run summarization INLINE (not fire-and-forget)
+// so it ALWAYS completes even on Vercel serverless
 // ============================================
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string };
@@ -49,19 +53,36 @@ async function saveMessage(
     await createServiceRoleClient()
       .from('messages')
       .insert({ conversation_id: conversationId, user_id: userId, role, content, tokens_used: tokensUsed });
-  } catch (e) { console.error('Error saving message:', e); }
+  } catch (e) { console.error('[Chat] Error saving message:', e); }
 }
 
-async function triggerSummarization(conversationId: string, userId: string) {
+// ============================================
+// INLINE SUMMARIZATION — Runs in same function scope
+// This is the KEY FIX: no fire-and-forget fetch
+// No risk of Vercel killing the function before it completes
+// ============================================
+async function runSummarizationInline(conversationId: string, userId: string): Promise<void> {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    // Fire and forget — don't block the chat response
-    fetch(`${baseUrl}/api/summarize`, {
+    const response = await fetch(`${baseUrl}/api/summarize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversationId, userId }),
-    }).catch(e => console.error('[Blackboard] Summarization trigger failed:', e));
-  } catch (e) { console.error('[Blackboard] Could not trigger summarization:', e); }
+      // No timeout — let it complete fully
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.data?.netTokensSaved > 0) {
+        console.log(`[Blackboard] ✅ Saved ${result.data.netTokensSaved} tokens (${result.data.percentageSaved}%)`);
+      }
+    } else {
+      console.error('[Blackboard] Summarization failed:', response.status);
+    }
+  } catch (e) {
+    console.error('[Blackboard] Summarization error:', e);
+    // Don't throw — summarization failure should not break chat
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -89,7 +110,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Validate conversation belongs to user
+    // Validate conversation
     if (conversationId) {
       const { data: conv, error: convErr } = await createServiceRoleClient()
         .from('conversations').select('id')
@@ -102,53 +123,48 @@ export async function POST(request: NextRequest) {
 
     // ============================================
     // BLACKBOARD CONTEXT ASSEMBLY
-    // This is the magic — build minimal context
+    // Build the minimal context that saves tokens
     // ============================================
     let systemContent = systemPrompt || 'You are a helpful, knowledgeable AI assistant.';
     let contextMessages: ChatMessage[] = [];
+    let tokensSavedContext = 0;
 
     if (conversationId) {
       const ctx = await getConversationContext(conversationId, userId);
+      tokensSavedContext = ctx.totalTokensSaved;
 
       if (ctx.summary) {
-        // Inject summary as part of system prompt
-        // This replaces the old messages entirely
-        systemContent += `
-
---- CONVERSATION HISTORY (summarized) ---
-${ctx.summary}
---- END OF SUMMARY ---
-
-The above is a summary of the conversation so far. Continue naturally from where we left off.`;
+        // Inject summary into system prompt
+        // This replaces ALL old messages — key token saver
+        systemContent += `\n\n=== CONVERSATION HISTORY (summarized to save tokens) ===\n${ctx.summary}\n=== END SUMMARY ===\n\nContinue the conversation naturally based on this context.`;
       }
 
-      // Only include RECENT messages (after the summary cutoff)
-      // NOT the full history — that's what saves tokens!
+      // Only recent messages (after summary cutoff, max 8)
       contextMessages = ctx.recentMessages.map(m => ({
-        role: m.role,
+        role: m.role as 'user' | 'assistant' | 'system',
         content: m.content,
       }));
     }
 
-    // Build final message array for the AI
+    // Final message array for AI
     const aiMessages: ChatMessage[] = [
       { role: 'system', content: systemContent },
-      ...contextMessages,          // Only recent messages (post-summary)
-      { role: 'user', content: message }, // New message
+      ...contextMessages,
+      { role: 'user', content: message },
     ];
 
-    // Log token estimate for debugging
-    const estimatedTokens = estimateMessagesTokenCount(
+    // Log token estimate
+    const estimatedInputTokens = estimateMessagesTokenCount(
       aiMessages.map(m => ({ id: '', role: m.role, content: m.content }))
     );
-    console.log(`[Blackboard] Sending ~${estimatedTokens} tokens (${contextMessages.length} recent messages + summary)`);
+    console.log(`[Blackboard] 📤 Sending ~${estimatedInputTokens} tokens | ${contextMessages.length}/${MAX_RECENT_MESSAGES} recent msgs | ${tokensSavedContext} tokens saved so far`);
 
-    // Save user message
+    // Save user message BEFORE streaming
     if (conversationId) {
       await saveMessage(conversationId, userId, 'user', message);
     }
 
-    // Stream response using user's API key
+    // Stream using user's API key
     const openaiClient = createOpenAI({ apiKey });
     const result = await streamText({
       model: openaiClient(model),
@@ -156,18 +172,16 @@ The above is a summary of the conversation so far. Continue naturally from where
       onFinish: async (completion) => {
         if (!conversationId) return;
 
-        // Save assistant reply
-        await saveMessage(
-          conversationId, userId,
-          'assistant', completion.text,
-          completion.usage?.totalTokens || 0
-        );
+        // Save assistant reply with actual token count
+        const tokensUsed = completion.usage?.totalTokens || 0;
+        await saveMessage(conversationId, userId, 'assistant', completion.text, tokensUsed);
 
-        // Check if we need to summarize (every 5 user messages)
+        // Check if we should summarize
         const userCount = await getUserMessageCount(conversationId, userId);
         if (shouldSummarize(userCount)) {
-          console.log(`[Blackboard] Triggering summarization at ${userCount} user messages`);
-          triggerSummarization(conversationId, userId);
+          console.log(`[Blackboard] 🔄 Triggering summarization at ${userCount} user messages`);
+          // INLINE — runs in same function, guaranteed to complete
+          await runSummarizationInline(conversationId, userId);
         }
       },
     });

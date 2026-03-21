@@ -1,20 +1,26 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, User, Bot, MoreVertical, Trash2, Edit3 } from "lucide-react";
+import { Send, Loader2, User, Bot, MoreVertical, Trash2, Edit3, Zap, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { createBrowserClient } from "@/lib/supabase";
-import TokenCounter from "./TokenCounter";
 
 interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   created_at?: string;
+  tokens_used?: number;
+}
+
+interface BlackboardStatus {
+  hasSummary: boolean;
+  messagesSummarized: number;
+  totalTokensSaved: number;
 }
 
 interface ChatInterfaceProps {
@@ -31,18 +37,30 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>(conversationId);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [blackboard, setBlackboard] = useState<BlackboardStatus | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const supabase = createBrowserClient();
 
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   }, [messages]);
 
   useEffect(() => {
-    if (conversationId) { setCurrentConversationId(conversationId); loadMessages(conversationId); }
-    else { setMessages([]); setCurrentConversationId(undefined); }
+    if (conversationId) {
+      setCurrentConversationId(conversationId);
+      loadMessages(conversationId);
+      loadBlackboardStatus(conversationId);
+    } else {
+      setMessages([]);
+      setCurrentConversationId(undefined);
+      setBlackboard(null);
+    }
   }, [conversationId]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -53,8 +71,26 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
       const response = await fetch(`/api/chat?conversationId=${convId}`);
       if (!response.ok) throw new Error("Failed to load messages");
       const data = await response.json();
-      setMessages(data.messages || []);
+      setMessages((data.messages || []).filter((m: Message) => m.role !== 'system'));
     } catch (error) { console.error("Error loading messages:", error); }
+  };
+
+  const loadBlackboardStatus = async (convId: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const response = await fetch(`/api/summarize?conversationId=${convId}&userId=${session.user.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.data) {
+          setBlackboard({
+            hasSummary: true,
+            messagesSummarized: data.data.message_count || 0,
+            totalTokensSaved: data.data.total_tokens_saved || 0,
+          });
+        }
+      }
+    } catch {}
   };
 
   const createConversation = async (firstMessage: string): Promise<string> => {
@@ -71,21 +107,37 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
     const userMessage = input.trim();
     setInput("");
     setIsLoading(true);
-    const tempUserMessage: Message = { id: `temp-${Date.now()}`, role: "user", content: userMessage, created_at: new Date().toISOString() };
-    setMessages((prev) => [...prev, tempUserMessage]);
+
+    const tempMsg: Message = {
+      id: `temp-${Date.now()}`,
+      role: "user",
+      content: userMessage,
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, tempMsg]);
+
     try {
       let convId = currentConversationId;
       if (!convId) convId = await createConversation(userMessage);
       await streamResponse(userMessage, convId);
     } catch (error) {
-      const errMsg: Message = { id: `error-${Date.now()}`, role: "assistant", content: error instanceof Error ? error.message : "Failed to send. Please try again.", created_at: new Date().toISOString() };
-      setMessages((prev) => [...prev, errMsg]);
-    } finally { setIsLoading(false); setIsStreaming(false); }
+      const errMsg: Message = {
+        id: `error-${Date.now()}`,
+        role: "assistant",
+        content: error instanceof Error ? error.message : "Something went wrong. Please try again.",
+        created_at: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, errMsg]);
+    } finally {
+      setIsLoading(false);
+      setIsStreaming(false);
+    }
   };
 
   const streamResponse = async (message: string, convId: string) => {
     setIsStreaming(true);
     abortControllerRef.current = new AbortController();
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -93,19 +145,31 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
         body: JSON.stringify({ message, conversationId: convId, model: "gpt-4o-mini" }),
         signal: abortControllerRef.current.signal,
       });
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || errorData.error || "Failed to get response");
       }
+
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
-      const assistantMessageId = `assistant-${Date.now()}`;
-      setMessages((prev) => [...prev, { id: assistantMessageId, role: "assistant", content: "", created_at: new Date().toISOString() }]);
+
+      // Add assistant message placeholder
+      const assistantId = `assistant-${Date.now()}`;
+      setMessages(prev => [...prev, {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        created_at: new Date().toISOString(),
+      }]);
+
       const decoder = new TextDecoder();
       let fullContent = "";
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+
         const lines = decoder.decode(value, { stream: true }).split("\n");
         for (const line of lines) {
           if (line.startsWith("0:")) {
@@ -113,89 +177,163 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
               const content = JSON.parse(line.slice(2));
               if (typeof content === "string") {
                 fullContent += content;
-                setMessages((prev) => prev.map((msg) => msg.id === assistantMessageId ? { ...msg, content: fullContent } : msg));
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantId ? { ...msg, content: fullContent } : msg
+                ));
               }
             } catch {}
           }
         }
       }
+
+      // After streaming done, reload messages and blackboard status
       await loadMessages(convId);
+
+      // Check if summarization happened (slight delay to let it complete)
+      setIsSummarizing(true);
+      setTimeout(async () => {
+        await loadBlackboardStatus(convId);
+        setIsSummarizing(false);
+      }, 3000);
+
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
       throw error;
-    } finally { setIsStreaming(false); abortControllerRef.current = null; }
+    } finally {
+      setIsStreaming(false);
+      abortControllerRef.current = null;
+    }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
+  };
 
   const handleDeleteMessage = async (messageId: string) => {
     try {
-      const { error } = await supabase.from("messages").delete().eq("id", messageId);
-      if (error) throw error;
-      setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
-    } catch (error) { console.error("Error deleting message:", error); }
+      await supabase.from("messages").delete().eq("id", messageId);
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+    } catch {}
   };
 
   const handleSaveEdit = async () => {
     if (!editingMessageId || !editContent.trim()) return;
     try {
-      const { error } = await supabase.from("messages").update({ content: editContent.trim() }).eq("id", editingMessageId);
-      if (error) throw error;
-      setMessages((prev) => prev.map((msg) => msg.id === editingMessageId ? { ...msg, content: editContent.trim() } : msg));
+      await supabase.from("messages").update({ content: editContent.trim() }).eq("id", editingMessageId);
+      setMessages(prev => prev.map(msg =>
+        msg.id === editingMessageId ? { ...msg, content: editContent.trim() } : msg
+      ));
       setEditingMessageId(null); setEditContent("");
-    } catch (error) { console.error("Error updating message:", error); }
+    } catch {}
   };
+
+  const formatTokens = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <TokenCounter />
+
+      {/* Blackboard Status Bar */}
+      {(blackboard || isSummarizing) && (
+        <div className="px-4 py-2 border-b bg-muted/20 flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <Brain className="h-3.5 w-3.5 text-blue-500" />
+            <span className="text-xs text-muted-foreground font-medium">Blackboard</span>
+          </div>
+          {isSummarizing ? (
+            <div className="flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
+              <span className="text-xs text-amber-600">Summarizing to save tokens...</span>
+            </div>
+          ) : blackboard?.hasSummary ? (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">
+                {blackboard.messagesSummarized} msgs compressed
+              </span>
+              <div className="flex items-center gap-1">
+                <Zap className="h-3 w-3 text-emerald-500" />
+                <span className="text-xs font-medium text-emerald-600">
+                  ~{formatTokens(blackboard.totalTokensSaved)} tokens saved
+                </span>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* Messages */}
       <ScrollArea className="flex-1 px-4" ref={scrollRef as any}>
         <div className="max-w-3xl mx-auto py-4 space-y-4">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
               <Bot className="h-12 w-12 mb-4 opacity-50" />
               <p className="text-lg font-medium">Start a conversation</p>
-              <p className="text-sm">Type a message below to begin chatting</p>
+              <p className="text-sm">Every 5 messages, Blackboard saves your tokens automatically</p>
             </div>
           ) : (
             messages.map((message, index) => (
-              <div key={message.id} className={cn("group flex gap-3 p-4 rounded-lg", message.role === "user" ? "bg-muted/50" : "bg-background border")}>
+              <div key={message.id} className={cn(
+                "group flex gap-3 p-4 rounded-lg",
+                message.role === "user" ? "bg-muted/50" : "bg-background border"
+              )}>
                 <div className="flex-shrink-0">
                   {message.role === "user" ? (
-                    <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center"><User className="h-4 w-4 text-primary-foreground" /></div>
+                    <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center">
+                      <User className="h-4 w-4 text-primary-foreground" />
+                    </div>
                   ) : (
-                    <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center"><Bot className="h-4 w-4 text-secondary-foreground" /></div>
+                    <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
+                      <Bot className="h-4 w-4 text-secondary-foreground" />
+                    </div>
                   )}
                 </div>
+
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium text-sm">{message.role === "user" ? "You" : "Assistant"}</span>
-                    {message.created_at && <span className="text-xs text-muted-foreground">{formatRelativeTime(message.created_at)}</span>}
+                    {message.created_at && (
+                      <span className="text-xs text-muted-foreground">{formatRelativeTime(message.created_at)}</span>
+                    )}
                   </div>
+
                   {editingMessageId === message.id ? (
                     <div className="space-y-2">
-                      <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="w-full min-h-[100px] p-2 text-sm border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+                      <textarea
+                        value={editContent}
+                        onChange={e => setEditContent(e.target.value)}
+                        className="w-full min-h-[100px] p-2 text-sm border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={handleSaveEdit} disabled={!editContent.trim()}>Save</Button>
+                        <Button size="sm" onClick={handleSaveEdit}>Save</Button>
                         <Button size="sm" variant="outline" onClick={() => { setEditingMessageId(null); setEditContent(""); }}>Cancel</Button>
                       </div>
                     </div>
                   ) : (
                     <div className="prose prose-sm max-w-none">
                       <p className="whitespace-pre-wrap break-words">
-                        {message.content || (isStreaming && index === messages.length - 1 && message.role === "assistant" ? <span className="animate-pulse">▊</span> : null)}
+                        {message.content || (
+                          isStreaming && index === messages.length - 1 && message.role === "assistant"
+                            ? <span className="animate-pulse">▊</span>
+                            : null
+                        )}
                       </p>
                     </div>
                   )}
                 </div>
+
                 {editingMessageId !== message.id && message.role === "user" && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100 transition-opacity"><MoreVertical className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => { setEditingMessageId(message.id); setEditContent(message.content); }}><Edit3 className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDeleteMessage(message.id)} className="text-destructive"><Trash2 className="h-4 w-4 mr-2" />Delete</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setEditingMessageId(message.id); setEditContent(message.content); }}>
+                        <Edit3 className="h-4 w-4 mr-2" />Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleDeleteMessage(message.id)} className="text-destructive">
+                        <Trash2 className="h-4 w-4 mr-2" />Delete
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
@@ -204,15 +342,27 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
           )}
         </div>
       </ScrollArea>
+
+      {/* Input */}
       <div className="border-t bg-background p-4">
         <div className="max-w-3xl mx-auto">
           <div className="flex gap-2">
-            <Input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Type your message..." disabled={isLoading || isStreaming} className="flex-1" />
+            <Input
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your message..."
+              disabled={isLoading || isStreaming}
+              className="flex-1"
+            />
             <Button onClick={handleSendMessage} disabled={!input.trim() || isLoading || isStreaming}>
               {isLoading || isStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2 text-center">Press Enter to send, Shift+Enter for new line</p>
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            Press Enter to send · Blackboard compresses history every 5 messages to save your tokens
+          </p>
         </div>
       </div>
     </div>

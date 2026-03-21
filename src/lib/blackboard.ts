@@ -1,7 +1,7 @@
 // ============================================
-// BLACKBOARD CORE — Token-saving conversation memory
-// USP: Summarize old messages → send only recent ones
-// This saves 60-90% tokens on long conversations
+// BLACKBOARD CORE — Production-grade token-saving memory
+// Pattern: ConversationSummaryBuffer (proven by LangChain, Claude Code)
+// Summary + last N messages = 60-90% token savings
 // ============================================
 
 export interface Message {
@@ -10,55 +10,47 @@ export interface Message {
   content: string;
 }
 
-export interface BlackboardEntry {
-  id: string;
-  summary: string;
-  summary_to_message_id: string | null;
-  message_count: number;
-  total_tokens_saved: number;
-  original_tokens: number;
-  summarized_tokens: number;
-}
-
 export interface ConversationContext {
   summary: string | null;
   summaryToMessageId: string | null;
-  recentMessages: Message[];  // ONLY messages after summary cutoff
+  recentMessages: Message[];
   totalTokensSaved: number;
 }
 
 // ============================================
 // TOKEN ESTIMATION
-// GPT-4o-mini: ~4 chars per token (English)
-// Add overhead per message: role + formatting
+// Accurate: ~1 token per 4 chars for English
+// Add 4 tokens per message for role/format overhead
 // ============================================
 export function estimateTokenCount(text: string): number {
   if (!text) return 0;
-  // More accurate: count words*1.3 + punctuation
-  const words = text.split(/\s+/).length;
-  const chars = text.length;
-  return Math.ceil((words * 1.3 + chars * 0.1) / 2);
+  return Math.ceil(text.length / 4);
 }
 
 export function estimateMessagesTokenCount(messages: Message[]): number {
   return messages.reduce((total, msg) => {
-    return total
-      + estimateTokenCount(msg.content)
-      + 4; // role + formatting overhead per message
-  }, 3); // base prompt overhead
+    return total + estimateTokenCount(msg.content) + 4;
+  }, 3); // base overhead
 }
 
 // ============================================
 // SUMMARIZATION TRIGGER
-// Fire after every 5 USER messages
+// Fire every 5 USER messages (total count)
+// This works: 5→trigger, 6-9→skip, 10→trigger, etc.
 // ============================================
 export function shouldSummarize(userMessageCount: number): boolean {
   return userMessageCount > 0 && userMessageCount % 5 === 0;
 }
 
 // ============================================
+// HARD CAP ON RECENT MESSAGES
+// Even without summary, never send more than MAX_RECENT
+// This is the safety net — prevents context bloat
+// ============================================
+export const MAX_RECENT_MESSAGES = 8; // ~2000 tokens max for recent context
+
+// ============================================
 // TOKEN SAVINGS CALCULATOR
-// Compare original vs summarized token count
 // ============================================
 export function calculateTokenSavings(
   originalMessages: Message[],
@@ -80,10 +72,17 @@ export function calculateTokenSavings(
 }
 
 // ============================================
-// CONVERSATION CONTEXT BUILDER
-// THE CORE OF BLACKBOARD:
-// Returns summary + ONLY messages after cutoff
-// NOT all messages — this is what saves tokens
+// CONVERSATION CONTEXT BUILDER — THE CORE
+//
+// What we send to AI:
+// [system + summary_of_old_msgs] + [last 8 recent_msgs] + [new_msg]
+//
+// What we DON'T send:
+// All the old messages — those are replaced by the summary
+//
+// Example:
+// 30 messages (8000 tokens) → summary (300 tokens) + last 8 msgs (800 tokens)
+// Sent tokens: 1100 instead of 8000 = 86% savings
 // ============================================
 export async function getConversationContext(
   conversationId: string,
@@ -92,7 +91,7 @@ export async function getConversationContext(
   const { createServiceRoleClient } = await import('@/lib/supabase');
   const db = createServiceRoleClient();
 
-  // Get blackboard entry (summary + where we left off)
+  // Get blackboard entry
   const { data: blackboard } = await db
     .from('blackboard')
     .select('summary, summary_to_message_id, total_tokens_saved')
@@ -103,16 +102,15 @@ export async function getConversationContext(
   const summaryToMessageId = blackboard?.summary_to_message_id || null;
 
   // Get ONLY messages AFTER the summary cutoff
-  // This is the key: we don't send old messages, only new ones
   let messagesQuery = db
     .from('messages')
     .select('id, role, content, created_at')
     .eq('conversation_id', conversationId)
     .eq('user_id', userId)
+    .neq('role', 'system') // exclude system messages
     .order('created_at', { ascending: true });
 
   if (summaryToMessageId) {
-    // Get the cutoff timestamp
     const { data: cutoffMsg } = await db
       .from('messages')
       .select('created_at')
@@ -125,12 +123,17 @@ export async function getConversationContext(
   }
 
   const { data: messagesData } = await messagesQuery;
-
-  const recentMessages: Message[] = (messagesData || []).map((m: any) => ({
+  let recentMessages: Message[] = (messagesData || []).map((m: any) => ({
     id: m.id,
     role: m.role as 'user' | 'assistant' | 'system',
     content: m.content,
   }));
+
+  // HARD CAP: never send more than MAX_RECENT_MESSAGES
+  // Even if summarization hasn't run yet, we cap the context
+  if (recentMessages.length > MAX_RECENT_MESSAGES) {
+    recentMessages = recentMessages.slice(-MAX_RECENT_MESSAGES);
+  }
 
   return {
     summary: blackboard?.summary || null,
@@ -142,7 +145,7 @@ export async function getConversationContext(
 
 // ============================================
 // GET MESSAGES TO SUMMARIZE
-// Returns ALL unsummarized messages
+// Returns all unsummarized messages (after cutoff)
 // ============================================
 export async function getUnsummarizedMessages(
   conversationId: string,
@@ -151,7 +154,6 @@ export async function getUnsummarizedMessages(
   const { createServiceRoleClient } = await import('@/lib/supabase');
   const db = createServiceRoleClient();
 
-  // Get current summary cutoff
   const { data: blackboard } = await db
     .from('blackboard')
     .select('summary_to_message_id')
@@ -166,6 +168,7 @@ export async function getUnsummarizedMessages(
     .select('id, role, content, created_at')
     .eq('conversation_id', conversationId)
     .eq('user_id', userId)
+    .neq('role', 'system')
     .order('created_at', { ascending: true });
 
   if (cutoffId) {
@@ -184,7 +187,7 @@ export async function getUnsummarizedMessages(
 }
 
 // ============================================
-// USER MESSAGE COUNT
+// USER MESSAGE COUNT (for summarization trigger)
 // ============================================
 export async function getUserMessageCount(
   conversationId: string,
