@@ -9,10 +9,15 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createBrowserClient } from "@/lib/supabase";
 
+// Always use the canonical production URL for OAuth redirects
+// Using window.location.origin causes issues on old deployment-specific URLs
+const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || (
+  typeof window !== "undefined" ? window.location.origin : ""
+);
+
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // createBrowserClient now uses @supabase/ssr → stores session in cookies
   const supabase = createBrowserClient();
 
   const [activeTab, setActiveTab] = useState<"login" | "signup">("login");
@@ -23,70 +28,75 @@ export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const redirectTo = searchParams.get("redirectTo") || "/dashboard";
+  const nextPath = searchParams.get("redirectTo") || "/dashboard";
 
-  // Check for error in URL (e.g. from failed OAuth)
   useEffect(() => {
     const urlError = searchParams.get("error");
     if (urlError) setError(decodeURIComponent(urlError));
   }, [searchParams]);
 
-  // Listen for auth state — when session is set, go to dashboard
   useEffect(() => {
+    // On mount, check if already logged in
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) router.replace(nextPath);
+    });
+
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && session) {
-        router.replace(redirectTo);
+      if (event === "SIGNED_IN" && session) {
+        router.replace(nextPath);
       }
     });
     return () => subscription.unsubscribe();
-  }, [supabase, router, redirectTo]);
+  }, []);
 
-  const clearMessages = () => { setError(null); setSuccess(null); };
+  const clear = () => { setError(null); setSuccess(null); };
 
-  // ── Google OAuth ──────────────────────────────────────────────────────────
   const handleGoogleLogin = async () => {
-    clearMessages();
+    clear();
     setIsGoogleLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        queryParams: { access_type: "offline", prompt: "consent" },
+        // ALWAYS use canonical URL — never window.location.origin
+        redirectTo: `${SITE_URL}/auth/callback`,
       },
     });
     if (error) { setError(error.message); setIsGoogleLoading(false); }
-    // If no error, browser will redirect to Google — don't stop loading spinner
   };
 
-  // ── Email Login ───────────────────────────────────────────────────────────
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    clearMessages();
+    clear();
     if (!email.trim()) { setError("Email is required"); return; }
     if (!password) { setError("Password is required"); return; }
     setIsLoading(true);
     try {
-      // Use Supabase directly — @supabase/ssr handles cookies automatically
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
       if (error) {
-        if (error.message.includes("Invalid login credentials")) setError("Wrong email or password. Please try again.");
-        else if (error.message.includes("Email not confirmed")) setError("Please confirm your email first. Check your inbox for a confirmation link.");
-        else setError(error.message);
+        if (error.message.includes("Invalid login credentials")) {
+          setError("Wrong email or password. Try again.");
+        } else if (error.message.includes("Email not confirmed")) {
+          setError("Please confirm your email first — check your inbox.");
+        } else {
+          setError(error.message);
+        }
         return;
       }
-      if (data.session) {
-        // onAuthStateChange will fire and redirect — but also push directly
-        router.replace(redirectTo);
-        router.refresh();
-      }
-    } catch { setError("An unexpected error occurred. Please try again."); }
-    finally { setIsLoading(false); }
+      router.replace(nextPath);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // ── Email Signup ──────────────────────────────────────────────────────────
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    clearMessages();
+    clear();
     if (!email.trim()) { setError("Email is required"); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
     setIsLoading(true);
@@ -94,37 +104,39 @@ export default function LoginForm() {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        options: {
+          emailRedirectTo: `${SITE_URL}/auth/callback`,
+        },
       });
       if (error) { setError(error.message); return; }
 
-      // If session is returned, email confirmation is OFF — log in directly
+      // Session returned = email confirmation OFF, logged in directly
       if (data.session) {
-        router.replace(redirectTo);
-        router.refresh();
+        router.replace(nextPath);
         return;
       }
 
-      // identities empty = email already exists
-      if (data.user && data.user.identities?.length === 0) {
-        setError("An account with this email already exists. Please log in instead.");
+      // No identities = email already exists
+      if (data.user && !data.user.identities?.length) {
+        setError("Account already exists with this email. Please log in.");
         setActiveTab("login");
         return;
       }
 
       // Email confirmation required
-      setSuccess("Account created! Check your email for a confirmation link, then log in.");
+      setSuccess("Account created! Check your email and click the confirmation link, then log in here.");
       setEmail(""); setPassword("");
       setTimeout(() => setActiveTab("login"), 4000);
-    } catch { setError("An unexpected error occurred. Please try again."); }
-    finally { setIsLoading(false); }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted p-4">
       <div className="w-full max-w-md">
-
-        {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-primary mb-4">
             <Bot className="h-8 w-8 text-primary-foreground" />
@@ -134,15 +146,10 @@ export default function LoginForm() {
         </div>
 
         <div className="bg-card border rounded-lg shadow-sm overflow-hidden">
-
-          {/* Google Sign In */}
+          {/* Google */}
           <div className="p-6 pb-0">
-            <Button
-              onClick={handleGoogleLogin}
-              disabled={isGoogleLoading || isLoading}
-              variant="outline"
-              className="w-full h-11 flex items-center justify-center gap-3 font-medium"
-            >
+            <Button onClick={handleGoogleLogin} disabled={isGoogleLoading || isLoading}
+              variant="outline" className="w-full h-11 flex items-center justify-center gap-3 font-medium">
               {isGoogleLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
                 <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -155,15 +162,13 @@ export default function LoginForm() {
             </Button>
           </div>
 
-          {/* Divider */}
           <div className="flex items-center gap-3 px-6 py-4">
             <div className="flex-1 h-px bg-border" />
             <span className="text-xs text-muted-foreground uppercase tracking-wide">or</span>
             <div className="flex-1 h-px bg-border" />
           </div>
 
-          {/* Email Tabs */}
-          <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "login" | "signup"); clearMessages(); }}>
+          <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "login" | "signup"); clear(); }}>
             <div className="px-6">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="login"><LogIn className="h-4 w-4 mr-2" />Login</TabsTrigger>
@@ -171,7 +176,6 @@ export default function LoginForm() {
               </TabsList>
             </div>
 
-            {/* Error / Success messages */}
             {error && (
               <div className="mx-6 mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
@@ -185,7 +189,6 @@ export default function LoginForm() {
               </div>
             )}
 
-            {/* Login Form */}
             <TabsContent value="login" className="p-6 pt-4">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
@@ -193,7 +196,7 @@ export default function LoginForm() {
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input id="login-email" type="email" placeholder="you@example.com" value={email}
-                      onChange={(e) => setEmail(e.target.value)} className="pl-10" disabled={isLoading || isGoogleLoading} autoComplete="email" />
+                      onChange={e => setEmail(e.target.value)} className="pl-10" disabled={isLoading} autoComplete="email" />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -201,7 +204,7 @@ export default function LoginForm() {
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input id="login-password" type="password" placeholder="••••••••" value={password}
-                      onChange={(e) => setPassword(e.target.value)} className="pl-10" disabled={isLoading || isGoogleLoading} autoComplete="current-password" />
+                      onChange={e => setPassword(e.target.value)} className="pl-10" disabled={isLoading} autoComplete="current-password" />
                   </div>
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading || isGoogleLoading}>
@@ -210,7 +213,6 @@ export default function LoginForm() {
               </form>
             </TabsContent>
 
-            {/* Signup Form */}
             <TabsContent value="signup" className="p-6 pt-4">
               <form onSubmit={handleSignup} className="space-y-4">
                 <div className="space-y-2">
@@ -218,7 +220,7 @@ export default function LoginForm() {
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input id="signup-email" type="email" placeholder="you@example.com" value={email}
-                      onChange={(e) => setEmail(e.target.value)} className="pl-10" disabled={isLoading || isGoogleLoading} autoComplete="email" />
+                      onChange={e => setEmail(e.target.value)} className="pl-10" disabled={isLoading} autoComplete="email" />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -226,7 +228,7 @@ export default function LoginForm() {
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input id="signup-password" type="password" placeholder="••••••••" value={password}
-                      onChange={(e) => setPassword(e.target.value)} className="pl-10" disabled={isLoading || isGoogleLoading} autoComplete="new-password" />
+                      onChange={e => setPassword(e.target.value)} className="pl-10" disabled={isLoading} autoComplete="new-password" />
                   </div>
                   <p className="text-xs text-muted-foreground">Minimum 6 characters</p>
                 </div>
@@ -238,11 +240,10 @@ export default function LoginForm() {
           </Tabs>
         </div>
 
-        {/* Feature badges */}
         <div className="mt-6 grid grid-cols-3 gap-3 text-center">
           <div className="p-3 rounded-lg bg-card border"><div className="text-xl">🔒</div><p className="text-xs text-muted-foreground mt-1">Encrypted Keys</p></div>
           <div className="p-3 rounded-lg bg-card border"><div className="text-xl">🧠</div><p className="text-xs text-muted-foreground mt-1">Smart Context</p></div>
-          <div className="p-3 rounded-lg bg-card border"><div className="text-xl">⚡</div><p className="text-xs text-muted-foreground mt-1">Real-time Stream</p></div>
+          <div className="p-3 rounded-lg bg-card border"><div className="text-xl">⚡</div><p className="text-xs text-muted-foreground mt-1">Streaming</p></div>
         </div>
       </div>
     </div>
