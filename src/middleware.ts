@@ -52,5 +52,5 @@ export async function middleware(request: NextRequest) {
 export const config = {
   // Public pages (/privacy, /terms, /contact, /disclaimer) NOT in matcher
   // So they're never touched by middleware
-  matcher: ["/", "/login", "/dashboard/:path*"],
+  matcher: ["/", "/login", "/dashboard/:path*", "/onboarding"],
 };
