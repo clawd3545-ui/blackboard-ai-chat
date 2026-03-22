@@ -81,7 +81,15 @@ export default function DashboardPage() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT" || !session) router.replace("/login");
     });
-    return () => subscription.unsubscribe();
+
+    // Listen for open-settings event from ChatInterface banner
+    const openSettingsHandler = () => setIsSettingsOpen(true);
+    window.addEventListener('open-settings', openSettingsHandler);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('open-settings', openSettingsHandler);
+    };
   }, []);
 
   useEffect(() => {

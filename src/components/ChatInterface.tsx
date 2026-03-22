@@ -71,6 +71,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [savedProviders, setSavedProviders] = useState<string[]>([]);
+  const [hasAutoSelected, setHasAutoSelected] = useState(false);
   const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
@@ -111,6 +112,19 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // AUTO-SELECT: when savedProviders loads, pick first available provider
+  useEffect(() => {
+    if (savedProviders.length === 0 || hasAutoSelected) return;
+    // Find first provider that has a saved key
+    const firstAvailable = PROVIDERS.find(p => savedProviders.includes(p.id));
+    if (firstAvailable) {
+      setSelectedProvider(firstAvailable.id as ProviderId);
+      const defaultModel = firstAvailable.models.find(m => m.isDefault) || firstAvailable.models[0];
+      if (defaultModel) setSelectedModel(defaultModel.id);
+      setHasAutoSelected(true);
+    }
+  }, [savedProviders]);
 
   // Keyboard shortcut: Escape = stop generation
   useEffect(() => {
@@ -256,7 +270,26 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
         </div>
       )}
 
-      {/* BLACKBOARD STATUS BAR */}
+      {/* NO KEYS BANNER — shown when user hasn't added any API key */}
+      {savedProviders.length === 0 && (
+        <div className="shrink-0 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+            <span>⚠️</span>
+            <span>No API key added yet. Add your key to start chatting.</span>
+          </div>
+          <button
+            onClick={() => {
+              // Dispatch custom event to open settings dialog
+              window.dispatchEvent(new CustomEvent('open-settings'));
+            }}
+            className="text-xs font-semibold text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:opacity-80"
+          >
+            Add key →
+          </button>
+        </div>
+      )}
+
+      {/* NEXCHAT STATUS BAR */}
       <div className="shrink-0 border-b border-border px-4 py-1.5 flex items-center gap-3 bg-muted/10 min-h-[36px]">
         <div className="flex items-center gap-1.5"><Logo size={14} /><span className="text-xs font-medium">Smart Memory</span></div>
         {isSummarizing ? (
@@ -371,12 +404,33 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
                   <div className="absolute bottom-full left-0 mb-2 w-72 bg-popover border border-border rounded-xl shadow-xl z-50">
                     <div className="px-3 py-2 border-b border-border"><p className="text-xs font-semibold text-muted-foreground">Select model</p></div>
                     <div className="max-h-60 overflow-y-auto p-1.5">
-                      {PROVIDERS.map(provider => (
+                      {/* Sort: providers WITH keys first, then providers without */}
+                    {[...PROVIDERS].sort((a, b) => {
+                      const aHasKey = savedProviders.includes(a.id);
+                      const bHasKey = savedProviders.includes(b.id);
+                      if (aHasKey && !bHasKey) return -1;
+                      if (!aHasKey && bHasKey) return 1;
+                      return 0;
+                    }).map((provider, providerIdx) => {
+                      const hasKey = savedProviders.includes(provider.id);
+                      const isFirstWithoutKey = !hasKey && PROVIDERS.filter(p => savedProviders.includes(p.id)).length > 0 &&
+                        [...PROVIDERS].sort((a, b) => {
+                          const aHas = savedProviders.includes(a.id);
+                          const bHas = savedProviders.includes(b.id);
+                          return (aHas ? -1 : 1) - (bHas ? -1 : 1);
+                        }).findIndex(p => !savedProviders.includes(p.id)) === providerIdx;
+                      return (
                         <div key={provider.id}>
+                          {isFirstWithoutKey && (
+                            <div className="mx-1.5 my-1 border-t border-border pt-1">
+                              <p className="px-2 py-0.5 text-[10px] text-muted-foreground">No key added</p>
+                            </div>
+                          )}
                           <div className="flex items-center gap-2 px-2 py-1">
                             <span className="text-sm">{provider.logo}</span>
                             <span className="text-xs font-semibold text-muted-foreground">{provider.name}</span>
-                            {!savedProviders.includes(provider.id) && <span className="ml-auto text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded">No key</span>}
+                            {!hasKey && <span className="ml-auto text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded">No key</span>}
+                            {hasKey && <span className="ml-auto text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded">✓ Ready</span>}
                           </div>
                           {provider.models.map(model => (
                             <button key={model.id}
@@ -394,7 +448,8 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
                             </button>
                           ))}
                         </div>
-                      ))}
+                      );
+                    })}
                     </div>
                     <div className="px-3 py-2 border-t border-border bg-muted/20"><p className="text-[11px] text-muted-foreground text-center">Context preserved when switching ✓</p></div>
                   </div>
