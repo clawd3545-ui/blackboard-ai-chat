@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Brain, Zap, Shield, ChevronRight } from "lucide-react";
+import { Brain, Zap, Shield, ChevronRight, ArrowRight } from "lucide-react";
 
 export default function HomePage() {
   return (
@@ -12,7 +12,8 @@ export default function HomePage() {
             </div>
             Blackboard AI
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</Link>
             <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Login</Link>
             <Link href="/login" className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity">
               Get Started
@@ -35,8 +36,8 @@ export default function HomePage() {
           <Link href="/login" className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-xl font-medium hover:opacity-90 transition-opacity">
             Start for free <ChevronRight className="h-4 w-4" />
           </Link>
-          <Link href="/contact" className="px-6 py-3 border border-border rounded-xl font-medium hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
-            Contact us
+          <Link href="/pricing" className="px-6 py-3 border border-border rounded-xl font-medium hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+            See pricing
           </Link>
         </div>
 
@@ -59,10 +60,8 @@ export default function HomePage() {
         <div className="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
           <p>© 2026 Blackboard AI. All rights reserved.</p>
           <div className="flex items-center gap-4">
-            {["/privacy", "/terms", "/disclaimer", "/contact"].map(href => (
-              <Link key={href} href={href} className="hover:text-foreground transition-colors capitalize">
-                {href.slice(1)}
-              </Link>
+            {["/pricing", "/privacy", "/terms", "/disclaimer", "/contact"].map(href => (
+              <Link key={href} href={href} className="hover:text-foreground transition-colors capitalize">{href.slice(1)}</Link>
             ))}
           </div>
         </div>

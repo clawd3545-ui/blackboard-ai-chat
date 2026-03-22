@@ -203,6 +203,17 @@ export default function DashboardPage() {
 
         {/* Bottom: user + settings */}
         <div className="border-t border-border p-2 space-y-1">
+          {/* Plan badge */}
+          <div className="mx-1 mb-1 px-3 py-2 rounded-lg bg-muted/40 border border-border">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-foreground">Free Plan</span>
+              </div>
+              <a href="/pricing" className="text-[10px] font-semibold text-primary hover:underline">Upgrade →</a>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-0.5">100 messages / month</p>
+          </div>
+
           <button onClick={() => setIsSettingsOpen(true)}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
             <Settings className="h-4 w-4 shrink-0" />API Keys

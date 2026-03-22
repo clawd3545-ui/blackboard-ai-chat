@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Loader2, User, Brain, Zap, ChevronDown } from "lucide-react";
+import { Send, Loader2, User, Brain, Zap, ChevronDown, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createBrowserClient } from "@/lib/supabase";
 import { PROVIDERS, type ProviderId } from "@/lib/providers";
@@ -79,6 +79,7 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
     } catch {}
   };
 
+  // FIX: Load blackboard status — called after every send too
   const loadBlackboardStatus = async (convId: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -86,7 +87,13 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
       const r = await fetch(`/api/summarize?conversationId=${convId}&userId=${session.user.id}`);
       if (r.ok) {
         const d = await r.json();
-        if (d.data) setBlackboard({ hasSummary: true, messagesSummarized: d.data.message_count || 0, totalTokensSaved: d.data.total_tokens_saved || 0 });
+        if (d.data && (d.data.message_count > 0 || d.data.total_tokens_saved > 0)) {
+          setBlackboard({
+            hasSummary: !!d.data.summary,
+            messagesSummarized: d.data.message_count || 0,
+            totalTokensSaved: d.data.total_tokens_saved || 0,
+          });
+        }
       }
     } catch {}
   };
@@ -109,7 +116,6 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
     setInput("");
     if (inputRef.current) inputRef.current.style.height = "auto";
     setIsLoading(true);
-
     setMessages(prev => [...prev, { id: `temp-${Date.now()}`, role: "user", content: userMessage, created_at: new Date().toISOString() }]);
 
     try {
@@ -144,8 +150,13 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
       }
 
       await loadMessages(convId);
+      // FIX: Always check blackboard after every message, not just after 5
       setIsSummarizing(true);
-      setTimeout(async () => { await loadBlackboardStatus(convId!); setIsSummarizing(false); }, 3500);
+      setTimeout(async () => {
+        await loadBlackboardStatus(convId!);
+        setIsSummarizing(false);
+      }, 2000);
+
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
       const msg = error instanceof Error ? error.message : "Something went wrong";
@@ -173,12 +184,39 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
 
   return (
     <div className="flex flex-col h-full">
+
+      {/* ALWAYS-VISIBLE BLACKBOARD STATUS BAR */}
+      <div className="shrink-0 border-b border-border px-4 py-2 flex items-center gap-4 bg-muted/10">
+        <div className="flex items-center gap-1.5">
+          <Brain className="h-3.5 w-3.5 text-blue-500" />
+          <span className="text-xs font-medium text-foreground">Blackboard</span>
+        </div>
+        {isSummarizing ? (
+          <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span>Compressing history...</span>
+          </div>
+        ) : blackboard && blackboard.totalTokensSaved > 0 ? (
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-muted-foreground">{blackboard.messagesSummarized} msgs compressed</span>
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
+              <Zap className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+              <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                ~{formatTokens(blackboard.totalTokensSaved)} tokens saved
+              </span>
+            </div>
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">Compresses every 5 messages · saves 60–90% tokens</span>
+        )}
+      </div>
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full px-4 pb-28">
-            <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
-              <Brain className="h-9 w-9 text-primary" />
+          <div className="flex flex-col items-center justify-center h-full px-4 pb-24">
+            <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
+              <Brain className="h-8 w-8 text-primary" />
             </div>
             <h1 className="text-2xl font-semibold text-foreground mb-2">How can I help you?</h1>
             <p className="text-sm text-muted-foreground mb-8 text-center">
@@ -198,17 +236,6 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
           </div>
         ) : (
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
-            {(blackboard?.hasSummary || isSummarizing) && (
-              <div className="flex justify-center">
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/60 border border-border text-xs text-muted-foreground">
-                  <Brain className="h-3 w-3 text-blue-500" />
-                  {isSummarizing
-                    ? <><Loader2 className="h-3 w-3 animate-spin text-amber-500" /><span>Summarizing...</span></>
-                    : <><span>{blackboard!.messagesSummarized} msgs compressed</span><span>·</span><Zap className="h-3 w-3 text-emerald-500" /><span className="text-emerald-600 font-medium">~{formatTokens(blackboard!.totalTokensSaved)} tokens saved</span></>
-                  }
-                </div>
-              </div>
-            )}
             {messages.map((msg, idx) => (
               <div key={msg.id} className={cn("flex gap-3", msg.role === "user" ? "justify-end" : "justify-start")}>
                 {msg.role === "assistant" && (
@@ -246,7 +273,7 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
         )}
       </div>
 
-      {/* Input bar — Claude.ai style */}
+      {/* Input bar */}
       <div className="shrink-0 border-t border-border bg-background px-4 py-3">
         <div className="max-w-3xl mx-auto">
           <div className="flex flex-col rounded-2xl border border-border bg-muted/20 px-4 pt-3 pb-2 focus-within:border-ring transition-all">
@@ -262,17 +289,14 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
               style={{ minHeight: "24px" }}
             />
             <div className="flex items-center justify-between mt-2">
-              {/* Model switcher — bottom left like Claude */}
+              {/* Model switcher */}
               <div className="relative" ref={modelPickerRef}>
-                <button
-                  onClick={() => setModelPickerOpen(!modelPickerOpen)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                >
+                <button onClick={() => setModelPickerOpen(!modelPickerOpen)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                   <span className="text-base leading-none">{currentProvider?.logo}</span>
                   <span>{currentModelName}</span>
                   <ChevronDown className="h-3 w-3 opacity-60" />
                 </button>
-
                 {modelPickerOpen && (
                   <div className="absolute bottom-full left-0 mb-2 w-72 bg-popover border border-border rounded-xl shadow-xl z-50">
                     <div className="px-3 py-2 border-b border-border">
@@ -319,15 +343,10 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
                   </div>
                 )}
               </div>
-
-              {/* Send */}
               <button onClick={() => sendMessage(input)} disabled={!input.trim() || isLoading}
                 className={cn("h-8 w-8 rounded-lg flex items-center justify-center transition-all shrink-0",
                   input.trim() && !isLoading ? "bg-primary text-primary-foreground hover:opacity-90" : "bg-muted text-muted-foreground cursor-not-allowed")}>
-                {isLoading
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <Send className="h-4 w-4" />
-                }
+                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
             </div>
           </div>
