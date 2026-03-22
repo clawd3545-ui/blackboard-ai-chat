@@ -10,9 +10,23 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-interface Message { id: string; role: "user" | "assistant" | "system"; content: string; created_at?: string; }
-interface NexChatStatus { hasSummary: boolean; messagesSummarized: number; totalTokensSaved: number; }
-interface PlanInfo { plan: string; messagesUsed: number; monthlyLimit: number; percentUsed: number; isPro: boolean; }
+interface Message {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at?: string;
+}
+interface SmartMemoryStatus {
+  messagesSummarized: number;
+  totalTokensSaved: number;
+}
+interface PlanInfo {
+  plan: string;
+  messagesUsed: number;
+  monthlyLimit: number;
+  percentUsed: number;
+  isPro: boolean;
+}
 interface ChatInterfaceProps {
   conversationId?: string;
   onConversationCreated?: (id: string, title: string) => void;
@@ -26,13 +40,14 @@ const STARTER_PROMPTS = [
 ];
 
 function MessageContent({ content, role }: { content: string; role: string }) {
-  if (role === "user") return <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{content}</p>;
+  if (role === "user") {
+    return <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{content}</p>;
+  }
   return (
     <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed
       prose-p:my-1.5 prose-headings:font-semibold prose-headings:mt-3 prose-headings:mb-1
       prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[11px] prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-      prose-pre:bg-muted/80 prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:p-3 prose-pre:overflow-x-auto prose-pre:my-2
-      prose-pre:code:bg-transparent prose-pre:code:p-0 prose-pre:code:text-xs
+      prose-pre:bg-muted/80 prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:p-3 prose-pre:overflow-x-auto prose-pre:my-2 prose-pre:code:bg-transparent prose-pre:code:p-0 prose-pre:code:text-xs
       prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5
       prose-blockquote:border-l-2 prose-blockquote:border-primary/40 prose-blockquote:pl-3 prose-blockquote:my-2 prose-blockquote:text-muted-foreground
       prose-strong:font-semibold prose-a:text-primary prose-a:no-underline hover:prose-a:underline">
@@ -43,14 +58,17 @@ function MessageContent({ content, role }: { content: string; role: string }) {
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    toast.success("Copied!");
-    setTimeout(() => setCopied(false), 2000);
-  };
   return (
-    <button onClick={copy} className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground" title="Copy">
+    <button
+      onClick={async () => {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        toast.success("Copied!");
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
+      title="Copy"
+    >
       {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
   );
@@ -60,11 +78,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  // Track the conversation ID we're actively using (may differ from prop during creation)
-  const [activeConvId, setActiveConvId] = useState<string | undefined>(conversationId);
-  // Flag to skip loadMessages when we just created a conversation mid-stream
-  const skipNextLoadRef = useRef(false);
-  const [nexChatStatus, setNexChatStatus] = useState<NexChatStatus | null>(null);
+  const [smartMemory, setSmartMemory] = useState<SmartMemoryStatus | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>("openai");
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
@@ -78,51 +92,73 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
+  
+  // Use a REF for conversation ID to avoid async state race conditions
+  // Refs update synchronously, states do not
+  const convIdRef = useRef<string | undefined>(conversationId);
+  // Track the conversationId prop that was last loaded from DB
+  const lastLoadedConvRef = useRef<string | undefined>(undefined);
+  // Flag: we just created a conversation, skip the loadMessages from prop change
+  const justCreatedRef = useRef(false);
+  
   const supabase = createBrowserClient();
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
-
-  // When conversationId prop changes (user clicks sidebar)
+  // Scroll to bottom when messages change
   useEffect(() => {
-    if (conversationId === activeConvId) return; // no change
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-    if (conversationId) {
-      // Switching to an existing conversation
-      if (skipNextLoadRef.current) {
-        // We just created this conversation during a send — messages already in state
-        skipNextLoadRef.current = false;
-        setActiveConvId(conversationId);
-        return;
+  // Handle conversationId prop change (user clicked sidebar item)
+  useEffect(() => {
+    const newConvId = conversationId;
+
+    // If this is the conversation we just created (during an active stream), skip reload
+    if (justCreatedRef.current && newConvId === convIdRef.current) {
+      justCreatedRef.current = false;
+      return;
+    }
+
+    // New conversation selected (or cleared)
+    convIdRef.current = newConvId;
+    justCreatedRef.current = false;
+
+    if (newConvId) {
+      // Only load from DB if it's actually a different conversation
+      if (newConvId !== lastLoadedConvRef.current) {
+        lastLoadedConvRef.current = newConvId;
+        setMessages([]);
+        setSmartMemory(null);
+        loadConversation(newConvId);
       }
-      setActiveConvId(conversationId);
-      setMessages([]);
-      loadMessages(conversationId);
-      loadNexChatStatus(conversationId);
     } else {
       // New chat
-      setActiveConvId(undefined);
+      lastLoadedConvRef.current = undefined;
       setMessages([]);
-      setNexChatStatus(null);
+      setSmartMemory(null);
     }
   }, [conversationId]);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  // Focus input on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Cleanup abort on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
   // Load keys + plan on mount
   useEffect(() => {
-    Promise.all([
-      fetch("/api/keys").then(r => r.json()).then(d => {
-        if (d.keys) {
-          const providers: string[] = d.keys.map((k: any) => k.provider);
-          setSavedProviders(providers);
-        }
-      }).catch(() => {}),
-      fetch("/api/user/plan").then(r => r.json()).then(d => { if (!d.error) setPlanInfo(d); }).catch(() => {}),
-    ]);
+    fetch("/api/keys")
+      .then(r => r.json())
+      .then(d => { if (d.keys) setSavedProviders(d.keys.map((k: any) => k.provider)); })
+      .catch(() => {});
+    fetch("/api/user/plan")
+      .then(r => r.json())
+      .then(d => { if (!d.error) setPlanInfo(d); })
+      .catch(() => {});
   }, []);
 
-  // Auto-select first provider with a key
+  // Auto-select first provider that has a key
   useEffect(() => {
     if (savedProviders.length === 0 || hasAutoSelected) return;
     const firstAvailable = PROVIDERS.find(p => savedProviders.includes(p.id));
@@ -132,12 +168,14 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
       if (defaultModel) setSelectedModel(defaultModel.id);
       setHasAutoSelected(true);
     }
-  }, [savedProviders]);
+  }, [savedProviders, hasAutoSelected]);
 
   // Close model picker on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) setModelPickerOpen(false);
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
+        setModelPickerOpen(false);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -145,73 +183,104 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
 
   // Esc = stop generation
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape" && isLoading) abortRef.current?.abort(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isLoading) abortRef.current?.abort();
+    };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [isLoading]);
 
-  const loadMessages = async (convId: string) => {
+  const loadConversation = async (convId: string) => {
     try {
       const r = await fetch(`/api/chat?conversationId=${convId}`);
+      if (!r.ok) return;
       const d = await r.json();
       setMessages((d.messages || []).filter((m: Message) => m.role !== "system"));
     } catch {}
+    // Also load smart memory status
+    loadSmartMemoryStatus(convId);
   };
 
-  const loadNexChatStatus = async (convId: string) => {
+  const loadSmartMemoryStatus = async (convId: string) => {
     try {
       const r = await fetch(`/api/summarize?conversationId=${convId}`);
-      if (r.ok) {
-        const d = await r.json();
-        if (d.data && (d.data.message_count > 0 || d.data.total_tokens_saved > 0)) {
-          setNexChatStatus({ hasSummary: !!d.data.summary, messagesSummarized: d.data.message_count || 0, totalTokensSaved: d.data.total_tokens_saved || 0 });
-        }
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d.data && d.data.total_tokens_saved > 0) {
+        setSmartMemory({
+          messagesSummarized: d.data.message_count || 0,
+          totalTokensSaved: d.data.total_tokens_saved || 0,
+        });
       }
     } catch {}
   };
 
-  const createConversation = async (firstMessage: string): Promise<string> => {
-    const title = firstMessage.slice(0, 60) + (firstMessage.length > 60 ? "..." : "");
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) throw new Error("Not authenticated");
-    const { data, error } = await supabase.from("conversations")
-      .insert({ title, model: selectedModel, provider: selectedProvider, user_id: session.user.id }).select().single();
-    if (error) throw error;
-    // Tell dashboard about new conversation (sidebar update)
-    // Set flag so the subsequent conversationId prop change doesn't reload messages
-    skipNextLoadRef.current = true;
-    setActiveConvId(data.id);
-    onConversationCreated?.(data.id, title);
-    return data.id;
-  };
-
   const sendMessage = useCallback(async (text: string, isRegenerate = false) => {
     if (!text.trim() || isLoading) return;
-    if (planInfo && !planInfo.isPro && planInfo.percentUsed >= 100) { setShowUpgradeModal(true); return; }
+    if (planInfo && !planInfo.isPro && planInfo.percentUsed >= 100) {
+      setShowUpgradeModal(true);
+      return;
+    }
 
     const userMessage = text.trim();
+
     if (!isRegenerate) {
       setInput("");
       if (inputRef.current) inputRef.current.style.height = "auto";
-      // Add user message to UI immediately
+      // Show user message immediately
       setMessages(prev => [...prev, {
         id: `user-${Date.now()}`,
         role: "user",
         content: userMessage,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
       }]);
     }
+
     setIsLoading(true);
+    const assistantMsgId = `ai-${Date.now()}`;
 
     try {
-      let convId = activeConvId;
-      if (!convId) convId = await createConversation(userMessage);
+      // Create new conversation if needed
+      if (!convIdRef.current) {
+        const title = userMessage.slice(0, 60) + (userMessage.length > 60 ? "..." : "");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("Not authenticated");
 
+        const { data, error } = await supabase
+          .from("conversations")
+          .insert({
+            title,
+            model: selectedModel,
+            provider: selectedProvider,
+            user_id: session.user.id,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Mark that we just created this conversation
+        // so the useEffect doesn't reload messages when prop changes
+        convIdRef.current = data.id;
+        justCreatedRef.current = true;
+        lastLoadedConvRef.current = data.id;
+        // Tell parent to update sidebar
+        onConversationCreated?.(data.id, title);
+      }
+
+      const convId = convIdRef.current!;
+
+      // Start streaming
       abortRef.current = new AbortController();
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, conversationId: convId, model: selectedModel, provider: selectedProvider }),
+        body: JSON.stringify({
+          message: userMessage,
+          conversationId: convId,
+          model: selectedModel,
+          provider: selectedProvider,
+        }),
         signal: abortRef.current.signal,
       });
 
@@ -222,77 +291,85 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
           if (!isRegenerate) setMessages(prev => prev.slice(0, -1));
           return;
         }
-        throw new Error(err.message || err.error || "Failed to get response");
+        throw new Error(err.message || err.error || `Error ${response.status}`);
       }
 
-      // Add empty assistant message placeholder
-      const assistantId = `assistant-${Date.now()}`;
+      // Add empty AI message placeholder
       setMessages(prev => [...prev, {
-        id: assistantId,
+        id: assistantMsgId,
         role: "assistant",
         content: "",
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
       }]);
 
-      // Read stream
+      // Read the stream
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response stream");
+
       const decoder = new TextDecoder();
       let fullContent = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        fullContent += chunk;
-        // Update the assistant message content in real-time
-        setMessages(prev => prev.map(m =>
-          m.id === assistantId ? { ...m, content: fullContent } : m
-        ));
+        fullContent += decoder.decode(value, { stream: true });
+        // Update AI message in real-time
+        setMessages(prev =>
+          prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m)
+        );
       }
 
-      // Stream done — content is in UI. 
-      // Refresh plan usage
-      fetch("/api/user/plan").then(r => r.json()).then(d => { if (!d.error) setPlanInfo(d); }).catch(() => {});
-      // Check token savings after delay (DB saves happen async)
+      // Stream finished — content is correct in UI
+      // Update plan usage in background
+      fetch("/api/user/plan")
+        .then(r => r.json())
+        .then(d => { if (!d.error) setPlanInfo(d); })
+        .catch(() => {});
+
+      // Check smart memory status after a delay (DB writes are async)
       setIsSummarizing(true);
       setTimeout(async () => {
-        if (convId) await loadNexChatStatus(convId);
+        await loadSmartMemoryStatus(convId);
         setIsSummarizing(false);
       }, 3500);
 
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        setMessages(prev => prev.filter(m => !(m.role === "assistant" && m.content === "")));
-        toast("Generation stopped");
+        // Keep partial streamed content, remove empty placeholder
+        setMessages(prev => prev.filter(m => !(m.id === assistantMsgId && m.content === "")));
+        toast("Stopped");
         return;
       }
       const msg = error instanceof Error ? error.message : "Something went wrong";
       toast.error(msg);
-      setMessages(prev => [...prev, {
-        id: `err-${Date.now()}`,
-        role: "assistant",
-        content: `❌ ${msg}`
-      }]);
+      // Remove the empty AI placeholder and show error
+      setMessages(prev => [
+        ...prev.filter(m => m.id !== assistantMsgId),
+        { id: `err-${Date.now()}`, role: "assistant", content: `❌ ${msg}` },
+      ]);
     } finally {
       setIsLoading(false);
       abortRef.current = null;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [isLoading, activeConvId, selectedModel, selectedProvider, planInfo]);
+  }, [isLoading, selectedModel, selectedProvider, planInfo, onConversationCreated]);
 
-  const handleRegenerate = () => {
+  const handleRegenerate = useCallback(() => {
+    if (isLoading) return;
     const lastUserMsg = [...messages].reverse().find(m => m.role === "user");
-    if (!lastUserMsg || isLoading) return;
+    if (!lastUserMsg) return;
     setMessages(prev => {
       const idx = prev.map(m => m.id).lastIndexOf(lastUserMsg.id);
       return prev.slice(0, idx + 1);
     });
     sendMessage(lastUserMsg.content, true);
-  };
+  }, [messages, isLoading, sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(input);
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -305,6 +382,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
   const currentProvider = PROVIDERS.find(p => p.id === selectedProvider);
   const currentModelName = currentProvider?.models.find(m => m.id === selectedModel)?.name || selectedModel;
   const isAtLimit = planInfo && !planInfo.isPro && planInfo.percentUsed >= 100;
+  const noKeyForProvider = savedProviders.length > 0 && !savedProviders.includes(selectedProvider);
 
   return (
     <div className="flex flex-col h-full relative">
@@ -315,11 +393,17 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
           <div className="max-w-sm w-full mx-4 p-6 rounded-2xl border border-border bg-card shadow-2xl text-center">
             <div className="text-4xl mb-3">🚫</div>
             <h3 className="text-lg font-semibold mb-2">Monthly limit reached</h3>
-            <p className="text-sm text-muted-foreground mb-1">You've used all <span className="font-medium text-foreground">{planInfo?.monthlyLimit} messages</span> this month.</p>
+            <p className="text-sm text-muted-foreground mb-1">
+              You've used all <span className="font-medium text-foreground">{planInfo?.monthlyLimit} messages</span> this month.
+            </p>
             <p className="text-xs text-muted-foreground mb-5">Upgrade to Pro for unlimited messages.</p>
             <div className="flex flex-col gap-2">
-              <a href="/pricing" className="w-full py-2.5 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity">⭐ Upgrade to Pro — ₹9/month</a>
-              <button onClick={() => setShowUpgradeModal(false)} className="w-full py-2 px-4 rounded-xl border border-border text-sm text-muted-foreground hover:bg-muted transition-colors">Maybe later</button>
+              <a href="/pricing" className="w-full py-2.5 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity">
+                ⭐ Upgrade to Pro — ₹9/month
+              </a>
+              <button onClick={() => setShowUpgradeModal(false)} className="w-full py-2 px-4 rounded-xl border border-border text-sm text-muted-foreground hover:bg-muted transition-colors">
+                Maybe later
+              </button>
             </div>
           </div>
         </div>
@@ -328,9 +412,13 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
       {/* NO KEYS BANNER */}
       {savedProviders.length === 0 && (
         <div className="shrink-0 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between">
-          <span className="text-xs text-amber-700 dark:text-amber-400">⚠️ No API key added yet. Add your key to start chatting.</span>
-          <button onClick={() => window.dispatchEvent(new CustomEvent('open-settings'))}
-            className="text-xs font-semibold text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:opacity-80">
+          <span className="text-xs text-amber-700 dark:text-amber-400">
+            ⚠️ No API key added yet. Add your key to start chatting.
+          </span>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("open-settings"))}
+            className="text-xs font-semibold text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:opacity-80"
+          >
             Add key →
           </button>
         </div>
@@ -338,26 +426,45 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
 
       {/* SMART MEMORY STATUS BAR */}
       <div className="shrink-0 border-b border-border px-4 py-1.5 flex items-center gap-3 bg-muted/10 min-h-[36px]">
-        <div className="flex items-center gap-1.5"><Logo size={14} /><span className="text-xs font-medium">Smart Memory</span></div>
+        <div className="flex items-center gap-1.5">
+          <Logo size={14} />
+          <span className="text-xs font-medium">Smart Memory</span>
+        </div>
         {isSummarizing ? (
-          <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"><Loader2 className="h-3 w-3 animate-spin" /><span>Compressing...</span></div>
-        ) : nexChatStatus && nexChatStatus.totalTokensSaved > 0 ? (
+          <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span>Compressing...</span>
+          </div>
+        ) : smartMemory && smartMemory.totalTokensSaved > 0 ? (
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">{nexChatStatus.messagesSummarized} msgs compressed</span>
+            <span className="text-muted-foreground">{smartMemory.messagesSummarized} msgs compressed</span>
             <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
               <Zap className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-              <span className="font-semibold text-emerald-700 dark:text-emerald-300">~{formatTokens(nexChatStatus.totalTokensSaved)} tokens saved</span>
+              <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                ~{formatTokens(smartMemory.totalTokensSaved)} tokens saved
+              </span>
             </div>
           </div>
         ) : (
-          <span className="text-xs text-muted-foreground hidden sm:block">Compresses every 5 messages · saves 60–90% tokens</span>
+          <span className="text-xs text-muted-foreground hidden sm:block">
+            Compresses every 5 messages · saves 60–90% tokens
+          </span>
         )}
       </div>
 
       {/* PLAN WARNING BAR */}
       {planInfo && !planInfo.isPro && planInfo.percentUsed >= 80 && (
-        <div className={`shrink-0 px-4 py-1.5 text-xs flex items-center justify-between ${planInfo.percentUsed >= 100 ? "bg-red-500/10 border-b border-red-500/20 text-red-600 dark:text-red-400" : "bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400"}`}>
-          <span>{planInfo.percentUsed >= 100 ? `🚫 Limit reached (${planInfo.messagesUsed}/${planInfo.monthlyLimit})` : `⚠️ ${planInfo.messagesUsed}/${planInfo.monthlyLimit} messages used`}</span>
+        <div className={cn(
+          "shrink-0 px-4 py-1.5 text-xs flex items-center justify-between",
+          planInfo.percentUsed >= 100
+            ? "bg-red-500/10 border-b border-red-500/20 text-red-600 dark:text-red-400"
+            : "bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400"
+        )}>
+          <span>
+            {planInfo.percentUsed >= 100
+              ? `🚫 Limit reached (${planInfo.messagesUsed}/${planInfo.monthlyLimit})`
+              : `⚠️ ${planInfo.messagesUsed}/${planInfo.monthlyLimit} messages used`}
+          </span>
           <a href="/pricing" className="font-semibold underline underline-offset-2">Upgrade →</a>
         </div>
       )}
@@ -369,13 +476,18 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
             <div className="mb-5"><Logo size={56} /></div>
             <h1 className="text-2xl font-semibold mb-2">How can I help you?</h1>
             <p className="text-sm text-muted-foreground mb-8 text-center">
-              <span className="font-medium text-foreground">{currentProvider?.logo} {currentModelName}</span>
+              <span className="font-medium text-foreground">
+                {currentProvider?.logo} {currentModelName}
+              </span>
               {" · "}NexChat compresses context every 5 messages
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
               {STARTER_PROMPTS.map(s => (
-                <button key={s.label} onClick={() => sendMessage(s.prompt)}
-                  className="flex flex-col items-start gap-1.5 p-4 rounded-xl border border-border bg-muted/30 hover:bg-muted transition-colors text-left">
+                <button
+                  key={s.label}
+                  onClick={() => sendMessage(s.prompt)}
+                  className="flex flex-col items-start gap-1.5 p-4 rounded-xl border border-border bg-muted/30 hover:bg-muted transition-colors text-left"
+                >
                   <span className="text-xl">{s.icon}</span>
                   <span className="text-sm font-medium">{s.label}</span>
                   <span className="text-xs text-muted-foreground line-clamp-1">{s.prompt}</span>
@@ -388,18 +500,24 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
             {messages.map((msg, idx) => (
               <div key={msg.id} className={cn("flex gap-2 sm:gap-3 group", msg.role === "user" ? "justify-end" : "justify-start")}>
                 {msg.role === "assistant" && (
-                  <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted border border-border flex items-center justify-center shrink-0 mt-0.5 text-sm">{currentProvider?.logo}</div>
+                  <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted border border-border flex items-center justify-center shrink-0 mt-0.5 text-sm">
+                    {currentProvider?.logo}
+                  </div>
                 )}
                 <div className={cn(
                   "max-w-[85%] sm:max-w-[78%] rounded-2xl px-3 sm:px-4 py-2.5 relative",
-                  msg.role === "user" ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted/50 text-foreground rounded-bl-sm border border-border"
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground rounded-br-sm"
+                    : "bg-muted/50 text-foreground rounded-bl-sm border border-border"
                 )}>
                   {msg.content ? (
                     <MessageContent content={msg.content} role={msg.role} />
                   ) : (
                     isLoading && idx === messages.length - 1 && msg.role === "assistant" && (
                       <div className="flex gap-1 items-center h-5">
-                        {[0, 150, 300].map(d => <span key={d} className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: `${d}ms` }} />)}
+                        {[0, 150, 300].map(d => (
+                          <span key={d} className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                        ))}
                       </div>
                     )
                   )}
@@ -416,10 +534,14 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
                 )}
               </div>
             ))}
-            {/* Regenerate button */}
-            {!isLoading && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.content && (
+
+            {/* Regenerate */}
+            {!isLoading && messages.at(-1)?.role === "assistant" && messages.at(-1)?.content && (
               <div className="flex justify-center">
-                <button onClick={handleRegenerate} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors">
+                <button
+                  onClick={handleRegenerate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors"
+                >
                   <RotateCcw className="h-3 w-3" />Regenerate
                 </button>
               </div>
@@ -439,10 +561,13 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder={
-                isAtLimit ? "Upgrade to Pro to continue chatting..." :
-                savedProviders.length === 0 ? "Add an API key in Settings to start chatting..." :
-                !savedProviders.includes(selectedProvider) ? `No ${currentProvider?.name} key — select a provider with a key ↑` :
-                `Message ${currentModelName}...`
+                isAtLimit
+                  ? "Upgrade to Pro to continue chatting..."
+                  : savedProviders.length === 0
+                  ? "Add an API key in Settings to start chatting..."
+                  : noKeyForProvider
+                  ? `No ${currentProvider?.name} key — pick a provider with ✓ Ready ↑`
+                  : `Message ${currentModelName}...`
               }
               rows={1}
               disabled={isLoading || !!isAtLimit}
@@ -452,54 +577,79 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
             <div className="flex items-center justify-between mt-2">
               {/* Model picker */}
               <div className="relative" ref={modelPickerRef}>
-                <button onClick={() => setModelPickerOpen(!modelPickerOpen)}
-                  className="flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors max-w-[160px] sm:max-w-none truncate">
+                <button
+                  onClick={() => setModelPickerOpen(!modelPickerOpen)}
+                  className="flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors max-w-[160px] sm:max-w-none truncate"
+                >
                   <span className="text-base leading-none shrink-0">{currentProvider?.logo}</span>
                   <span className="truncate">{currentModelName}</span>
                   <ChevronDown className="h-3 w-3 opacity-60 shrink-0" />
                 </button>
+
                 {modelPickerOpen && (
                   <div className="absolute bottom-full left-0 mb-2 w-72 bg-popover border border-border rounded-xl shadow-xl z-50">
-                    <div className="px-3 py-2 border-b border-border"><p className="text-xs font-semibold text-muted-foreground">Select model</p></div>
+                    <div className="px-3 py-2 border-b border-border">
+                      <p className="text-xs font-semibold text-muted-foreground">Select model</p>
+                    </div>
                     <div className="max-h-64 overflow-y-auto p-1.5">
-                      {[...PROVIDERS].sort((a, b) => {
-                        const aHas = savedProviders.includes(a.id);
-                        const bHas = savedProviders.includes(b.id);
-                        return aHas === bHas ? 0 : aHas ? -1 : 1;
-                      }).map((provider, idx, arr) => {
-                        const hasKey = savedProviders.includes(provider.id);
-                        const prevHasKey = idx > 0 && savedProviders.includes(arr[idx - 1].id);
-                        const showDivider = !hasKey && prevHasKey;
-                        return (
-                          <div key={provider.id}>
-                            {showDivider && <div className="my-1 border-t border-border pt-1"><p className="px-2 text-[10px] text-muted-foreground">Add key to use</p></div>}
-                            <div className="flex items-center gap-2 px-2 py-1">
-                              <span className="text-sm">{provider.logo}</span>
-                              <span className="text-xs font-semibold text-muted-foreground">{provider.name}</span>
-                              {hasKey
-                                ? <span className="ml-auto text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded">✓ Ready</span>
-                                : <span className="ml-auto text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded">No key</span>
-                              }
-                            </div>
-                            {provider.models.map(model => (
-                              <button key={model.id}
-                                onClick={() => { setSelectedProvider(provider.id as ProviderId); setSelectedModel(model.id); setModelPickerOpen(false); }}
-                                className={cn("w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-colors",
-                                  selectedProvider === provider.id && selectedModel === model.id ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground")}>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-1">
-                                    <span className="font-medium">{model.name}</span>
-                                    {model.isFast && <span className="text-[10px] text-blue-500">⚡</span>}
-                                    {model.isPremium && <span className="text-[10px] text-amber-500">⭐</span>}
-                                  </div>
-                                  <p className="text-muted-foreground text-[11px] truncate">{model.description}</p>
+                      {[...PROVIDERS]
+                        .sort((a, b) => {
+                          const aHas = savedProviders.includes(a.id);
+                          const bHas = savedProviders.includes(b.id);
+                          return aHas === bHas ? 0 : aHas ? -1 : 1;
+                        })
+                        .map((provider, idx, arr) => {
+                          const hasKey = savedProviders.includes(provider.id);
+                          const prevHasKey = idx > 0 && savedProviders.includes(arr[idx - 1].id);
+                          const showDivider = !hasKey && prevHasKey;
+                          return (
+                            <div key={provider.id}>
+                              {showDivider && (
+                                <div className="my-1 border-t border-border pt-1">
+                                  <p className="px-2 text-[10px] text-muted-foreground">Add key to use</p>
                                 </div>
-                                {selectedProvider === provider.id && selectedModel === model.id && <div className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />}
-                              </button>
-                            ))}
-                          </div>
-                        );
-                      })}
+                              )}
+                              <div className="flex items-center gap-2 px-2 py-1">
+                                <span className="text-sm">{provider.logo}</span>
+                                <span className="text-xs font-semibold text-muted-foreground">{provider.name}</span>
+                                {hasKey ? (
+                                  <span className="ml-auto text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded">✓ Ready</span>
+                                ) : (
+                                  <span className="ml-auto text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded">No key</span>
+                                )}
+                              </div>
+                              {provider.models.map(model => (
+                                <button
+                                  key={model.id}
+                                  onClick={() => {
+                                    setSelectedProvider(provider.id as ProviderId);
+                                    setSelectedModel(model.id);
+                                    setModelPickerOpen(false);
+                                    setHasAutoSelected(true);
+                                  }}
+                                  className={cn(
+                                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-colors",
+                                    selectedProvider === provider.id && selectedModel === model.id
+                                      ? "bg-primary/10 text-primary"
+                                      : "hover:bg-muted text-foreground"
+                                  )}
+                                >
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1">
+                                      <span className="font-medium">{model.name}</span>
+                                      {model.isFast && <span className="text-[10px] text-blue-500">⚡</span>}
+                                      {model.isPremium && <span className="text-[10px] text-amber-500">⭐</span>}
+                                    </div>
+                                    <p className="text-muted-foreground text-[11px] truncate">{model.description}</p>
+                                  </div>
+                                  {selectedProvider === provider.id && selectedModel === model.id && (
+                                    <div className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })}
                     </div>
                     <div className="px-3 py-2 border-t border-border bg-muted/20">
                       <p className="text-[11px] text-muted-foreground text-center">Context preserved when switching models ✓</p>
@@ -507,17 +657,28 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
                   </div>
                 )}
               </div>
+
               <div className="flex items-center gap-1.5">
                 {isLoading && (
-                  <button onClick={() => abortRef.current?.abort()}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors" title="Stop (Esc)">
-                    <Square className="h-3 w-3" /><span className="hidden sm:inline">Stop</span>
+                  <button
+                    onClick={() => abortRef.current?.abort()}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors"
+                    title="Stop (Esc)"
+                  >
+                    <Square className="h-3 w-3" />
+                    <span className="hidden sm:inline">Stop</span>
                   </button>
                 )}
-                <button onClick={() => sendMessage(input)}
+                <button
+                  onClick={() => sendMessage(input)}
                   disabled={!input.trim() || isLoading || !!isAtLimit}
-                  className={cn("h-8 w-8 rounded-lg flex items-center justify-center transition-all shrink-0",
-                    input.trim() && !isLoading && !isAtLimit ? "bg-primary text-primary-foreground hover:opacity-90" : "bg-muted text-muted-foreground cursor-not-allowed")}>
+                  className={cn(
+                    "h-8 w-8 rounded-lg flex items-center justify-center transition-all shrink-0",
+                    input.trim() && !isLoading && !isAtLimit
+                      ? "bg-primary text-primary-foreground hover:opacity-90"
+                      : "bg-muted text-muted-foreground cursor-not-allowed"
+                  )}
+                >
                   {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </button>
               </div>

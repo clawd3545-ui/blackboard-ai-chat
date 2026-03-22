@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthSession, createServiceRoleClient } from '@/lib/supabase';
+import { getAuthUser, createServiceRoleClient } from '@/lib/supabase';
 import { serverEncrypt } from '@/lib/encryption';
 import { validateApiKey, type ProviderId } from '@/lib/providers';
 
 export async function POST(request: NextRequest) {
   const response = NextResponse.next();
   try {
-    const [session, body] = await Promise.all([
-      getAuthSession(request, response),
+    const [user, body] = await Promise.all([
+      getAuthUser(request, response),
       request.json(),
     ]);
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { apiKey, provider = 'openai' } = body;
     if (!apiKey?.trim()) return NextResponse.json({ error: 'API key is required' }, { status: 400 });
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await db
       .from('api_keys')
       .upsert({
-        user_id: session.user.id,
+        user_id: user.id,
         provider,
         encrypted_key: encryptedData.encryptedKey,
         iv: encryptedData.iv,
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       .select().single();
 
     if (error) return NextResponse.json({ error: 'Failed to save API key' }, { status: 500 });
-    return NextResponse.json({ success: true, data: { id: data.id, provider: data.provider, created_at: data.created_at } });
+    return NextResponse.json({ success: true, data: { id: data.id, provider: data.provider } });
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
@@ -44,18 +44,18 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const response = NextResponse.next();
   try {
-    const session = await getAuthSession(request, response);
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = await getAuthUser(request, response);
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const db = createServiceRoleClient();
     const { data, error } = await db
       .from('api_keys')
       .select('id, provider, is_active, created_at, updated_at')
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .eq('is_active', true)
       .order('created_at', { ascending: true });
 
-    if (error) return NextResponse.json({ error: 'Failed to fetch API keys' }, { status: 500 });
+    if (error) return NextResponse.json({ error: 'Failed to fetch keys' }, { status: 500 });
     return NextResponse.json({ keys: data || [] });
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -65,16 +65,17 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const response = NextResponse.next();
   try {
-    const [session, body] = await Promise.all([
-      getAuthSession(request, response),
+    const [user, body] = await Promise.all([
+      getAuthUser(request, response),
       request.json(),
     ]);
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { provider } = body;
     if (!provider) return NextResponse.json({ error: 'Provider required' }, { status: 400 });
 
-    await createServiceRoleClient().from('api_keys').delete().eq('user_id', session.user.id).eq('provider', provider);
+    const db = createServiceRoleClient();
+    await db.from('api_keys').delete().eq('user_id', user.id).eq('provider', provider);
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
