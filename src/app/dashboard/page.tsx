@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus, Settings, LogOut, MessageSquare, Trash2, Loader2,
   User, Sun, Moon, Menu, X, ChevronDown,
@@ -62,9 +62,15 @@ export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showUpgradedBanner, setShowUpgradedBanner] = useState(false);
+  const searchParams = useSearchParams();
   const [planInfo, setPlanInfo] = useState<{ plan: string; messagesUsed: number; monthlyLimit: number; percentUsed: number; isPro: boolean } | null>(null);
 
   useEffect(() => {
+    if (searchParams.get("upgraded") === "1") {
+      setShowUpgradedBanner(true);
+      setTimeout(() => setShowUpgradedBanner(false), 6000);
+    }
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.replace("/login"); return; }
@@ -128,7 +134,13 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex h-screen bg-background overflow-hidden relative">
+      {showUpgradedBanner && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 text-white text-sm font-medium shadow-lg animate-in slide-in-from-top-2">
+          ⭐ Welcome to Pro! Unlimited messages activated.
+          <button onClick={() => setShowUpgradedBanner(false)} className="ml-2 opacity-70 hover:opacity-100">✕</button>
+        </div>
+      )}
 
       {/* SIDEBAR */}
       <aside className={cn(
