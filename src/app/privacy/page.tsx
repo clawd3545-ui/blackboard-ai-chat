@@ -1,5 +1,5 @@
 import PublicLayout from "@/components/PublicLayout";
-export const metadata = { title: "Privacy Policy — Nexchat" };
+export const metadata = { title: "Privacy Policy — NexChat" };
 export default function PrivacyPage() {
   return (
     <PublicLayout title="Privacy Policy">
@@ -14,7 +14,7 @@ export default function PrivacyPage() {
       </section>
       <section><h2 className="text-xl font-semibold mb-3">2. How We Use Your Data</h2>
         <ul className="space-y-2 text-muted-foreground list-disc pl-5">
-          <li>Providing the Nexchat service and conversation memory</li>
+          <li>Providing the NexChat service and conversation memory</li>
           <li>Authenticating your session securely</li>
           <li>Showing token savings statistics</li>
         </ul>

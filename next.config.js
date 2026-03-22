@@ -4,9 +4,7 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'https://nexchat.in',
   },
-  // Compress responses
   compress: true,
-  // Optimize bundle
   experimental: {
     optimizePackageImports: ['lucide-react', '@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/google'],
   },
@@ -20,7 +18,6 @@ const nextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         ],
       },
-      // Cache static assets aggressively
       {
         source: '/_next/static/(.*)',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],

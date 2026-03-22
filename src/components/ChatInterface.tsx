@@ -270,7 +270,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
             </div>
           </div>
         ) : (
-          <span className="text-xs text-muted-foreground hidden sm:block">Compresses every 5 messages · saves 60–90% tokens</span>
+          <span className="text-xs text-muted-foreground hidden sm:block">Compresses every 5 msgs · saves 60–90% tokens</span>
         )}
       </div>
 
@@ -290,7 +290,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
             <h1 className="text-2xl font-semibold mb-2">How can I help you?</h1>
             <p className="text-sm text-muted-foreground mb-8 text-center">
               <span className="font-medium text-foreground">{currentProvider?.logo} {currentModelName}</span>
-              {" · "}Nexchat compresses context every 5 messages
+              {" · "}NexChat compresses context every 5 messages
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
               {STARTER_PROMPTS.map(s => (
@@ -354,7 +354,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
         <div className="max-w-3xl mx-auto">
           <div className="flex flex-col rounded-2xl border border-border bg-muted/20 px-3 sm:px-4 pt-3 pb-2 focus-within:border-ring transition-all">
             <textarea ref={inputRef} value={input} onChange={handleInputChange} onKeyDown={handleKeyDown}
-              placeholder={isAtLimit ? "Upgrade to Pro to continue chatting..." : `Message ${currentModelName}...`}
+              placeholder={isAtLimit ? "Upgrade to Pro to continue..." : `Message ${currentModelName}...`}
               rows={1} disabled={isLoading || !!isAtLimit}
               className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed max-h-52 disabled:opacity-50"
               style={{ minHeight: "24px" }} />
@@ -415,7 +415,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
             </div>
           </div>
           <p className="text-center text-[11px] text-muted-foreground mt-1.5 hidden sm:block">
-            Enter to send · Shift+Enter for new line · Esc to stop
+            Enter to send · Shift+Enter new line · Esc to stop
           </p>
         </div>
       </div>

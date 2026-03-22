@@ -1,6 +1,6 @@
 import PublicLayout from "@/components/PublicLayout";
 import { Mail, MessageSquare, Shield, Zap } from "lucide-react";
-export const metadata = { title: "Contact — Nexchat" };
+export const metadata = { title: "Contact — NexChat" };
 export default function ContactPage() {
   const contacts = [
     { Icon: Mail, label: "General", email: "hello@nexchat.in", desc: "Questions, feedback, partnerships" },
@@ -10,8 +10,8 @@ export default function ContactPage() {
   ];
   const faqs = [
     { q: "Are my API keys safe?", a: "Yes. Keys are encrypted with AES-256-GCM and PBKDF2 (600k iterations). The plaintext key never touches our database." },
-    { q: "How much can I save with Blackboard?", a: "Typically 60–90% on long conversations. Savings depend on conversation length and model." },
-    { q: "Can I switch models mid-conversation?", a: "Yes. The Blackboard summary is provider-agnostic — switch between GPT, Claude, Gemini etc. without losing context." },
+    { q: "How much can I save with NexChat?", a: "Typically 60–90% on long conversations. Savings depend on conversation length and model." },
+    { q: "Can I switch models mid-conversation?", a: "Yes. The NexChat memory summary is provider-agnostic — switch between GPT, Claude, Gemini etc. without losing context." },
     { q: "How do I delete my account?", a: "Email privacy@nexchat.in and we'll delete all your data within 7 days." },
   ];
   return (
