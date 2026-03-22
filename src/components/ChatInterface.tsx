@@ -211,13 +211,21 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
         setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
       }
 
-      await loadMessages(convId);
+      // NOTE: Do NOT call loadMessages here!
+      // saveMessageAsync is fire-and-forget — DB save happens after stream ends.
+      // Calling loadMessages immediately returns stale/empty data and OVERWRITES
+      // the streamed content already showing in UI. Streamed content is correct as-is.
       fetch("/api/user/plan").then(r => r.json()).then(d => { if (!d.error) setPlanInfo(d); }).catch(() => {});
       setIsSummarizing(true);
-      setTimeout(async () => { await loadNexChatStatus(convId!); setIsSummarizing(false); }, 2000);
+      setTimeout(async () => { await loadNexChatStatus(convId!); setIsSummarizing(false); }, 3000);
 
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") { setMessages(prev => prev.filter(m => m.content !== "")); return; }
+      if (error instanceof Error && error.name === "AbortError") {
+        // Keep whatever was streamed — only remove empty assistant placeholder
+        setMessages(prev => prev.filter(m => !(m.role === "assistant" && m.content === "")));
+        toast("Generation stopped");
+        return;
+      }
       const msg = error instanceof Error ? error.message : "Something went wrong";
       toast.error(msg);
       setMessages(prev => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: `❌ ${msg}` }]);
