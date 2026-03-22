@@ -23,7 +23,7 @@ export default function PublicLayout({ children, title }: { children: React.Reac
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-semibold text-foreground hover:opacity-80 transition-opacity">
             <Logo size={28} />
-            Blackboard AI
+            Nexchat
           </Link>
           <nav className="flex items-center gap-1">
             {NAV_LINKS.map(l => (
@@ -52,7 +52,7 @@ export default function PublicLayout({ children, title }: { children: React.Reac
             <div className="h-5 w-5 rounded bg-primary/20 flex items-center justify-center">
               <Logo size={14} />
             </div>
-            <span>© 2026 Blackboard AI. All rights reserved.</span>
+            <span>© 2026 Nexchat. All rights reserved.</span>
           </div>
           <div className="flex items-center gap-4 text-sm">
             {FOOTER_LINKS.map(l => (

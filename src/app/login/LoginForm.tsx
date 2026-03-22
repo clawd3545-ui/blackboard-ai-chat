@@ -330,7 +330,7 @@ export default function LoginForm() {
             {mode === "login" ? "Welcome back" : "Create account"}
           </div>
           <div className="lp-sub">
-            {mode === "login" ? "Sign in to Blackboard AI" : "Start chatting with AI in seconds"}
+            {mode === "login" ? "Sign in to Nexchat" : "Start chatting with AI in seconds"}
           </div>
 
           {/* Mode toggle */}

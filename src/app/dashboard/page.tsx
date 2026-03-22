@@ -137,7 +137,7 @@ export default function DashboardPage() {
       const d = await r.json();
       const messages = (d.messages || []).filter((m: any) => m.role !== "system");
       const conv = conversations.find(c => c.id === selectedConversationId);
-      let md = `# ${conv?.title || "Conversation"}\n\nExported from Blackboard AI — ${new Date().toLocaleDateString()}\n\n---\n\n`;
+      let md = `# ${conv?.title || "Conversation"}\n\nExported from Nexchat — ${new Date().toLocaleDateString()}\n\n---\n\n`;
       messages.forEach((m: any) => {
         md += `**${m.role === "user" ? "You" : "AI"}**\n\n${m.content}\n\n---\n\n`;
       });
@@ -187,7 +187,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between px-3 py-3 border-b border-border">
           <div className="flex items-center gap-2">
             <Logo size={26} />
-            <span className="font-semibold text-sm">Blackboard AI</span>
+            <span className="font-semibold text-sm">Nexchat</span>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="p-1 rounded hover:bg-muted text-muted-foreground">
             <X className="h-4 w-4" />

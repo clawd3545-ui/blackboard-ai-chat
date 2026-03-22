@@ -72,10 +72,10 @@ export default function OnboardingPage() {
           {step === 0 && (
             <div className="text-center">
               <div className="flex justify-center mb-4"><Logo size={56} /></div>
-              <h1 className="text-2xl font-bold mb-2">Welcome to Blackboard AI</h1>
+              <h1 className="text-2xl font-bold mb-2">Welcome to Nexchat</h1>
               <p className="text-muted-foreground text-sm mb-6">The AI chat that saves your tokens automatically. Let's get you set up in 60 seconds.</p>
               <div className="space-y-3 text-left mb-6">
-                {["Use your own API keys — we never charge for AI responses", "8 providers: OpenAI, Claude, Gemini, DeepSeek & more", "Blackboard compresses context — saves 60–90% tokens"].map(f => (
+                {["Use your own API keys — we never charge for AI responses", "8 providers: OpenAI, Claude, Gemini, DeepSeek & more", "Nexchat compresses context — saves 60–90% tokens"].map(f => (
                   <div key={f} className="flex items-start gap-2">
                     <Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
                     <span className="text-sm text-foreground">{f}</span>
@@ -138,7 +138,7 @@ export default function OnboardingPage() {
             <div className="text-center">
               <div className="text-5xl mb-4">🎉</div>
               <h2 className="text-xl font-bold mb-2">You're all set!</h2>
-              <p className="text-sm text-muted-foreground mb-6">Your API key is saved. Start chatting — Blackboard will automatically compress your conversations to save tokens.</p>
+              <p className="text-sm text-muted-foreground mb-6">Your API key is saved. Start chatting — Nexchat will automatically compress your conversations to save tokens.</p>
               <button onClick={() => router.push("/dashboard")}
                 className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
                 Start chatting <ArrowRight className="h-4 w-4" />

@@ -4,23 +4,29 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
-  title: "Blackboard AI — Multi-Model Chat with Smart Memory",
-  description: "BYOK AI chat with Blackboard memory compression. Use OpenAI, Claude, Gemini, DeepSeek, Groq, Qwen, MiniMax, Mistral. Save 60-90% tokens automatically.",
-  keywords: ["AI", "Chat", "OpenAI", "Claude", "Gemini", "DeepSeek", "Groq", "Qwen", "BYOK", "Token Saving", "AI Chat"],
-  authors: [{ name: "Blackboard AI" }],
+  title: "Nexchat — Multi-Model AI Chat with Smart Memory",
+  description: "BYOK AI chat with smart memory compression. Use OpenAI, Claude, Gemini, DeepSeek, Groq, Qwen, MiniMax, Mistral. Save 60-90% tokens automatically.",
+  keywords: ["AI", "Chat", "OpenAI", "Claude", "Gemini", "DeepSeek", "Groq", "Qwen", "BYOK", "Token Saving", "Nexchat"],
+  authors: [{ name: "Nexchat" }],
   robots: "index, follow",
-  metadataBase: new URL("https://blackboard-ai-chat.vercel.app"),
+  metadataBase: new URL("https://nexchat.in"),
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    apple: "/favicon.svg",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
-    title: "Blackboard AI — Multi-Model Chat with Smart Memory",
+    title: "Nexchat — Multi-Model AI Chat with Smart Memory",
     description: "BYOK AI chat — use your own API keys for 8 providers. Saves 60-90% tokens automatically.",
-    siteName: "Blackboard AI",
-    url: "https://blackboard-ai-chat.vercel.app",
+    siteName: "Nexchat",
+    url: "https://nexchat.in",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Blackboard AI",
+    title: "Nexchat",
     description: "BYOK AI chat with smart memory compression",
   },
 };

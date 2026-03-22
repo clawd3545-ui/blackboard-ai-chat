@@ -5,8 +5,7 @@ interface LogoProps {
   className?: string;
 }
 
-// Blackboard AI Logo — Concept 3
-// Dark board frame + chalk "B" + amber lightning bolt + chalk tray
+// Nexchat Logo — Dark board frame + chalk "N" + amber lightning bolt + chalk tray
 export function Logo({ size = 28, className = "" }: LogoProps) {
   return (
     <svg
@@ -15,7 +14,7 @@ export function Logo({ size = 28, className = "" }: LogoProps) {
       viewBox="0 0 96 96"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
-      aria-label="Blackboard AI"
+      aria-label="Nexchat"
     >
       {/* Outer rounded square */}
       <rect width="96" height="96" rx="22" fill="#0d1117" />
@@ -26,17 +25,17 @@ export function Logo({ size = 28, className = "" }: LogoProps) {
       {/* Subtle horizontal lines */}
       <line x1="11" y1="32" x2="85" y2="32" stroke="#ffffff" strokeOpacity="0.03" strokeWidth="1" />
       <line x1="11" y1="48" x2="85" y2="48" stroke="#ffffff" strokeOpacity="0.03" strokeWidth="1" />
-      {/* Chalk "B" */}
+      {/* Chalk "N" — serif, hand-drawn feel */}
       <text
-        x="22" y="57"
+        x="20" y="57"
         fontFamily="Georgia, 'Times New Roman', serif"
         fontSize="42"
         fontWeight="700"
         fill="white"
         opacity="0.90"
-      >B</text>
-      {/* Lightning bolt — amber */}
-      <polygon points="61,17 54,33 60,33 53,49 66,30 59.5,30" fill="#f59e0b" />
+      >N</text>
+      {/* Lightning bolt — amber/gold, top right */}
+      <polygon points="68,17 61,33 67,33 60,49 73,30 66.5,30" fill="#f59e0b" />
       {/* Chalk tray */}
       <rect x="9" y="66" width="78" height="9" rx="4" fill="#21262d" />
       {/* Chalk pieces on tray */}

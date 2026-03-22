@@ -5,6 +5,6 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       { userAgent: "*", allow: ["/", "/pricing", "/privacy", "/terms", "/contact", "/disclaimer", "/login"], disallow: ["/dashboard", "/api/"] },
     ],
-    sitemap: "https://blackboard-ai-chat.vercel.app/sitemap.xml",
+    sitemap: "https://nexchat.in/sitemap.xml",
   };
 }

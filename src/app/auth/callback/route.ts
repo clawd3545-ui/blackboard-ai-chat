@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const errorDesc = searchParams.get("error_description");
 
   // Always redirect to canonical production URL, not whatever URL the callback came from
-  const CANONICAL = process.env.NEXT_PUBLIC_APP_URL || "https://blackboard-ai-chat.vercel.app";
+  const CANONICAL = process.env.NEXT_PUBLIC_APP_URL || "https://nexchat.in";
 
   if (error) {
     return NextResponse.redirect(`${CANONICAL}/login?error=${encodeURIComponent(errorDesc || error)}`);

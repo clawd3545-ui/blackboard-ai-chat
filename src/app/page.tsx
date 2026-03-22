@@ -9,7 +9,7 @@ export default function HomePage() {
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2 font-semibold">
             <Logo size={28} />
-            Blackboard AI
+            Nexchat
           </div>
           <div className="flex items-center gap-4">
             <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</Link>
@@ -27,7 +27,7 @@ export default function HomePage() {
           AI Chat that saves<br className="hidden sm:block" /> your tokens automatically
         </h1>
         <p className="text-lg text-muted-foreground max-w-xl mb-10 leading-relaxed">
-          Bring your own API keys for OpenAI, Claude, Gemini, DeepSeek, or Groq. Blackboard compresses context every 5 messages — saving 60–90% tokens on long conversations.
+          Bring your own API keys for OpenAI, Claude, Gemini, DeepSeek, or Groq. Nexchat compresses context every 5 messages — saving 60–90% tokens on long conversations.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 mb-16">
           <Link href="/login" className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-xl font-medium hover:opacity-90 transition-opacity">
@@ -40,7 +40,7 @@ export default function HomePage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl w-full">
           {[
-            { icon: null, title: "Blackboard Memory", desc: "Auto-compresses every 5 messages. 60–90% fewer tokens on long chats." },
+            { icon: null, title: "Smart Memory", desc: "Auto-compresses every 5 messages. 60–90% fewer tokens on long chats." },
             { icon: Zap, title: "5 AI Providers", desc: "OpenAI, Claude, Gemini, DeepSeek, Groq. Switch anytime without losing context." },
             { icon: Shield, title: "Your Keys, Encrypted", desc: "AES-256-GCM encryption. Your keys never touch our database in plaintext." },
           ].map(({ icon: Icon, title, desc }) => (
@@ -55,7 +55,7 @@ export default function HomePage() {
 
       <footer className="border-t border-border py-6">
         <div className="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-          <p>© 2026 Blackboard AI. All rights reserved.</p>
+          <p>© 2026 Nexchat. All rights reserved.</p>
           <div className="flex items-center gap-4">
             {["/pricing", "/privacy", "/terms", "/disclaimer", "/contact"].map(href => (
               <Link key={href} href={href} className="hover:text-foreground transition-colors capitalize">{href.slice(1)}</Link>

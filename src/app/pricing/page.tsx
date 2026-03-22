@@ -9,7 +9,7 @@ const FREE_FEATURES = [
   { text: "100 messages per month", included: true },
   { text: "All 8 AI providers (OpenAI, Claude, Gemini, DeepSeek, Groq, Qwen, MiniMax, Mistral)", included: true },
   { text: "All 25 AI models", included: true },
-  { text: "Blackboard memory compression", included: true },
+  { text: "Smart Memory compression", included: true },
   { text: "AES-256 encrypted API key storage", included: true },
   { text: "Conversation history", included: true },
   { text: "Unlimited messages", included: false },
@@ -19,7 +19,7 @@ const FREE_FEATURES = [
 const PRO_FEATURES = [
   { text: "Unlimited messages", included: true },
   { text: "All 8 AI providers + all 25 models", included: true },
-  { text: "Blackboard memory compression", included: true },
+  { text: "Smart Memory compression", included: true },
   { text: "AES-256 encrypted API key storage", included: true },
   { text: "Conversation history", included: true },
   { text: "Priority support", included: true },
@@ -27,8 +27,8 @@ const PRO_FEATURES = [
 ];
 
 const FAQS = [
-  { q: "Do I need to pay for AI responses?", a: "No — you use your own API keys (BYOK). You pay your AI provider directly. Blackboard AI only charges for the platform." },
-  { q: "How does Blackboard save my tokens?", a: "Every 5 messages, Blackboard compresses older history into a dense summary — saving 60–90% of tokens on long conversations." },
+  { q: "Do I need to pay for AI responses?", a: "No — you use your own API keys (BYOK). You pay your AI provider directly. Nexchat only charges for the platform." },
+  { q: "How does Blackboard save my tokens?", a: "Every 5 messages, Nexchat compresses older history into a dense summary — saving 60–90% of tokens on long conversations." },
   { q: "What payment methods are accepted?", a: "Credit/debit cards (Visa, Mastercard), UPI, NetBanking, and all major Indian wallets via Razorpay." },
   { q: "Is this a one-time payment or subscription?", a: "Monthly subscription at ₹9/month. Cancel anytime." },
   { q: "Is my API key safe?", a: "Yes. Keys are encrypted with AES-256-GCM. The plaintext never touches our database." },
@@ -74,7 +74,7 @@ export default function PricingPage() {
         key: data.keyId,
         amount: data.amount,
         currency: data.currency,
-        name: 'Blackboard AI',
+        name: 'Nexchat',
         description: 'Pro Plan — Monthly',
         order_id: data.orderId,
         prefill: { email: data.prefill?.email || '' },
@@ -120,7 +120,7 @@ export default function PricingPage() {
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-semibold hover:opacity-80 transition-opacity">
             <Logo size={28} />
-            Blackboard AI
+            Nexchat
           </Link>
           <div className="flex items-center gap-3">
             <Link href="/contact" className="text-sm text-muted-foreground hover:text-foreground">Contact</Link>
@@ -233,7 +233,7 @@ export default function PricingPage() {
             {[
               { icon: Shield, title: "Full Control", desc: "Your key, your data, your costs. We never markup or resell AI credits." },
               { icon: Zap, title: "All Providers", desc: "OpenAI, Claude, Gemini, DeepSeek, Groq, Qwen, MiniMax, Mistral — switch anytime." },
-              { icon: Users, title: "Real Savings", desc: "Blackboard compresses long conversations 60–90%. Your API bill drops significantly." },
+              { icon: Users, title: "Real Savings", desc: "Nexchat compresses long conversations 60–90%. Your API bill drops significantly." },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="p-5 rounded-xl border border-border bg-background">
                 <Icon className="h-5 w-5 text-primary mb-3" />
@@ -271,7 +271,7 @@ export default function PricingPage() {
 
       <footer className="border-t border-border py-6 px-6">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-          <p>© 2026 Blackboard AI. All rights reserved.</p>
+          <p>© 2026 Nexchat. All rights reserved.</p>
           <div className="flex items-center gap-4">
             {["/privacy", "/terms", "/disclaimer", "/contact"].map(href => (
               <Link key={href} href={href} className="hover:text-foreground transition-colors capitalize">{href.slice(1)}</Link>

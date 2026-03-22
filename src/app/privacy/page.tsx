@@ -1,5 +1,5 @@
 import PublicLayout from "@/components/PublicLayout";
-export const metadata = { title: "Privacy Policy — Blackboard AI" };
+export const metadata = { title: "Privacy Policy — Nexchat" };
 export default function PrivacyPage() {
   return (
     <PublicLayout title="Privacy Policy">
@@ -14,7 +14,7 @@ export default function PrivacyPage() {
       </section>
       <section><h2 className="text-xl font-semibold mb-3">2. How We Use Your Data</h2>
         <ul className="space-y-2 text-muted-foreground list-disc pl-5">
-          <li>Providing the Blackboard AI service and conversation memory</li>
+          <li>Providing the Nexchat service and conversation memory</li>
           <li>Authenticating your session securely</li>
           <li>Showing token savings statistics</li>
         </ul>
@@ -24,7 +24,7 @@ export default function PrivacyPage() {
         <p className="text-muted-foreground leading-relaxed">Keys are encrypted with AES-256-GCM using PBKDF2-SHA256 (600,000 iterations) and a unique random salt per key. The encryption secret never leaves our servers. API calls go directly to your AI provider using your key — we do not log API call content.</p>
       </section>
       <section><h2 className="text-xl font-semibold mb-3">4. Data Retention</h2>
-        <p className="text-muted-foreground">Conversations are stored while your account is active. Delete any conversation anytime. To delete your account and all data, email privacy@blackboard-ai.com.</p>
+        <p className="text-muted-foreground">Conversations are stored while your account is active. Delete any conversation anytime. To delete your account and all data, email privacy@nexchat.in.</p>
       </section>
       <section><h2 className="text-xl font-semibold mb-3">5. Your Rights</h2>
         <ul className="space-y-2 text-muted-foreground list-disc pl-5">
@@ -34,7 +34,7 @@ export default function PrivacyPage() {
         </ul>
       </section>
       <section><h2 className="text-xl font-semibold mb-3">6. Contact</h2>
-        <p className="text-muted-foreground">Privacy concerns: <a href="mailto:privacy@blackboard-ai.com" className="text-primary hover:underline">privacy@blackboard-ai.com</a></p>
+        <p className="text-muted-foreground">Privacy concerns: <a href="mailto:privacy@nexchat.in" className="text-primary hover:underline">privacy@nexchat.in</a></p>
       </section>
     </PublicLayout>
   );

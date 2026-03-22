@@ -258,7 +258,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
 
       {/* BLACKBOARD STATUS BAR */}
       <div className="shrink-0 border-b border-border px-4 py-1.5 flex items-center gap-3 bg-muted/10 min-h-[36px]">
-        <div className="flex items-center gap-1.5"><Logo size={14} /><span className="text-xs font-medium">Blackboard</span></div>
+        <div className="flex items-center gap-1.5"><Logo size={14} /><span className="text-xs font-medium">Smart Memory</span></div>
         {isSummarizing ? (
           <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"><Loader2 className="h-3 w-3 animate-spin" /><span>Compressing...</span></div>
         ) : blackboard && blackboard.totalTokensSaved > 0 ? (
@@ -290,7 +290,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
             <h1 className="text-2xl font-semibold mb-2">How can I help you?</h1>
             <p className="text-sm text-muted-foreground mb-8 text-center">
               <span className="font-medium text-foreground">{currentProvider?.logo} {currentModelName}</span>
-              {" · "}Blackboard compresses context every 5 messages
+              {" · "}Nexchat compresses context every 5 messages
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
               {STARTER_PROMPTS.map(s => (

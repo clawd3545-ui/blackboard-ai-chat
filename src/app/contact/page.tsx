@@ -1,18 +1,18 @@
 import PublicLayout from "@/components/PublicLayout";
 import { Mail, MessageSquare, Shield, Zap } from "lucide-react";
-export const metadata = { title: "Contact — Blackboard AI" };
+export const metadata = { title: "Contact — Nexchat" };
 export default function ContactPage() {
   const contacts = [
-    { Icon: Mail, label: "General", email: "hello@blackboard-ai.com", desc: "Questions, feedback, partnerships" },
-    { Icon: Shield, label: "Privacy & Security", email: "privacy@blackboard-ai.com", desc: "Data requests, security issues" },
-    { Icon: Zap, label: "Support", email: "support@blackboard-ai.com", desc: "Technical issues, bugs, account help" },
-    { Icon: MessageSquare, label: "Legal", email: "legal@blackboard-ai.com", desc: "Terms, legal notices, compliance" },
+    { Icon: Mail, label: "General", email: "hello@nexchat.in", desc: "Questions, feedback, partnerships" },
+    { Icon: Shield, label: "Privacy & Security", email: "privacy@nexchat.in", desc: "Data requests, security issues" },
+    { Icon: Zap, label: "Support", email: "support@nexchat.in", desc: "Technical issues, bugs, account help" },
+    { Icon: MessageSquare, label: "Legal", email: "legal@nexchat.in", desc: "Terms, legal notices, compliance" },
   ];
   const faqs = [
     { q: "Are my API keys safe?", a: "Yes. Keys are encrypted with AES-256-GCM and PBKDF2 (600k iterations). The plaintext key never touches our database." },
     { q: "How much can I save with Blackboard?", a: "Typically 60–90% on long conversations. Savings depend on conversation length and model." },
     { q: "Can I switch models mid-conversation?", a: "Yes. The Blackboard summary is provider-agnostic — switch between GPT, Claude, Gemini etc. without losing context." },
-    { q: "How do I delete my account?", a: "Email privacy@blackboard-ai.com and we'll delete all your data within 7 days." },
+    { q: "How do I delete my account?", a: "Email privacy@nexchat.in and we'll delete all your data within 7 days." },
   ];
   return (
     <PublicLayout title="Contact Us">
