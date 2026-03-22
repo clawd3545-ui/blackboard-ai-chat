@@ -33,6 +33,8 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [savedProviders, setSavedProviders] = useState<string[]>([]);
+  const [planInfo, setPlanInfo] = useState<{ plan: string; messagesUsed: number; monthlyLimit: number; percentUsed: number; isPro: boolean } | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -60,6 +62,9 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
   useEffect(() => {
     fetch("/api/keys").then(r => r.json()).then(d => {
       if (d.keys) setSavedProviders(d.keys.map((k: any) => k.provider));
+    }).catch(() => {});
+    fetch("/api/user/plan").then(r => r.json()).then(d => {
+      if (!d.error) setPlanInfo(d);
     }).catch(() => {});
   }, []);
 
@@ -133,6 +138,12 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
+        if (response.status === 429 || err.error === 'limit_reached') {
+          setShowUpgradeModal(true);
+          setMessages(prev => prev.slice(0, -1)); // remove temp user message
+          setIsLoading(false);
+          return;
+        }
         throw new Error(err.message || err.error || "Failed to get response");
       }
 
@@ -151,6 +162,8 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
       }
 
       await loadMessages(convId);
+      // Refresh plan usage
+      fetch("/api/user/plan").then(r => r.json()).then(d => { if (!d.error) setPlanInfo(d); }).catch(() => {});
       // FIX: Always check blackboard after every message, not just after 5
       setIsSummarizing(true);
       setTimeout(async () => {
@@ -184,7 +197,7 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
   const currentModelName = currentProvider?.models.find(m => m.id === selectedModel)?.name || selectedModel;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
 
       {/* ALWAYS-VISIBLE BLACKBOARD STATUS BAR */}
       <div className="shrink-0 border-b border-border px-4 py-2 flex items-center gap-4 bg-muted/10">
@@ -211,6 +224,49 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
           <span className="text-xs text-muted-foreground">Compresses every 5 messages · saves 60–90% tokens</span>
         )}
       </div>
+
+      {/* UPGRADE MODAL — shown when limit reached */}
+      {showUpgradeModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="max-w-sm w-full mx-4 p-6 rounded-2xl border border-border bg-card shadow-2xl text-center">
+            <div className="text-4xl mb-3">🚫</div>
+            <h3 className="text-lg font-semibold text-foreground mb-2">Monthly limit reached</h3>
+            <p className="text-sm text-muted-foreground mb-1">
+              You've used all <span className="font-medium text-foreground">{planInfo?.monthlyLimit} messages</span> on the Free plan this month.
+            </p>
+            <p className="text-xs text-muted-foreground mb-5">Upgrade to Pro for unlimited messages, or wait for your limit to reset next month.</p>
+            <div className="flex flex-col gap-2">
+              <a href="/pricing"
+                className="w-full py-2.5 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity">
+                ⭐ Upgrade to Pro — $9/month
+              </a>
+              <button onClick={() => setShowUpgradeModal(false)}
+                className="w-full py-2 px-4 rounded-xl border border-border text-sm text-muted-foreground hover:bg-muted transition-colors">
+                Maybe later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PLAN WARNING BAR — at 80%+ usage */}
+      {planInfo && !planInfo.isPro && planInfo.percentUsed >= 80 && (
+        <div className={`shrink-0 px-4 py-2 text-xs flex items-center justify-between ${
+          planInfo.percentUsed >= 100
+            ? "bg-red-500/10 border-b border-red-500/20 text-red-600 dark:text-red-400"
+            : "bg-amber-500/10 border-b border-amber-500/20 text-amber-700 dark:text-amber-400"
+        }`}>
+          <span>
+            {planInfo.percentUsed >= 100
+              ? `🚫 Monthly limit reached (${planInfo.messagesUsed}/${planInfo.monthlyLimit})`
+              : `⚠️ ${planInfo.messagesUsed}/${planInfo.monthlyLimit} messages used this month`
+            }
+          </span>
+          <a href="/pricing" className="font-semibold underline underline-offset-2 hover:opacity-80">
+            Upgrade →
+          </a>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
@@ -342,9 +398,11 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
                   </div>
                 )}
               </div>
-              <button onClick={() => sendMessage(input)} disabled={!input.trim() || isLoading}
+              <button onClick={() => sendMessage(input)} disabled={!input.trim() || isLoading || (planInfo !== null && !planInfo.isPro && planInfo.percentUsed >= 100)}
                 className={cn("h-8 w-8 rounded-lg flex items-center justify-center transition-all shrink-0",
-                  input.trim() && !isLoading ? "bg-primary text-primary-foreground hover:opacity-90" : "bg-muted text-muted-foreground cursor-not-allowed")}>
+                  input.trim() && !isLoading && !(planInfo && !planInfo.isPro && planInfo.percentUsed >= 100)
+                    ? "bg-primary text-primary-foreground hover:opacity-90"
+                    : "bg-muted text-muted-foreground cursor-not-allowed")}>
                 {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
             </div>

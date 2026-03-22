@@ -62,6 +62,7 @@ export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [planInfo, setPlanInfo] = useState<{ plan: string; messagesUsed: number; monthlyLimit: number; percentUsed: number; isPro: boolean } | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -74,6 +75,10 @@ export default function DashboardPage() {
         avatar_url: session.user.user_metadata?.avatar_url || null,
       });
       await loadConversations();
+      // Load plan info
+      fetch('/api/user/plan').then(r => r.json()).then(d => {
+        if (!d.error) setPlanInfo(d);
+      }).catch(() => {});
       setIsLoading(false);
     };
     init();
@@ -202,16 +207,40 @@ export default function DashboardPage() {
 
         {/* Bottom: user + settings */}
         <div className="border-t border-border p-2 space-y-1">
-          {/* Plan badge */}
-          <div className="mx-1 mb-1 px-3 py-2 rounded-lg bg-muted/40 border border-border">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-foreground">Free Plan</span>
+          {/* Plan badge — dynamic */}
+          {planInfo && (
+            <div className="mx-1 mb-1 px-3 py-2 rounded-lg bg-muted/40 border border-border">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  {planInfo.isPro ? (
+                    <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">⭐ PRO</span>
+                  ) : (
+                    <span className="text-xs font-medium text-foreground">Free Plan</span>
+                  )}
+                </div>
+                {!planInfo.isPro && (
+                  <a href="/pricing" className="text-[10px] font-semibold text-primary hover:underline">Upgrade →</a>
+                )}
               </div>
-              <a href="/pricing" className="text-[10px] font-semibold text-primary hover:underline">Upgrade →</a>
+              {!planInfo.isPro && (
+                <>
+                  <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                    <span>{planInfo.messagesUsed} / {planInfo.monthlyLimit} messages</span>
+                    <span className={planInfo.percentUsed >= 90 ? "text-red-500 font-medium" : planInfo.percentUsed >= 70 ? "text-amber-500" : ""}>{planInfo.percentUsed}%</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-1.5 rounded-full transition-all ${planInfo.percentUsed >= 90 ? "bg-red-500" : planInfo.percentUsed >= 70 ? "bg-amber-500" : "bg-primary"}`}
+                      style={{ width: `${Math.min(planInfo.percentUsed, 100)}%` }}
+                    />
+                  </div>
+                </>
+              )}
+              {planInfo.isPro && (
+                <p className="text-[10px] text-muted-foreground">Unlimited messages ∞</p>
+              )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-0.5">100 messages / month</p>
-          </div>
+          )}
 
           <button onClick={() => setIsSettingsOpen(true)}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
