@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser, createServiceRoleClient } from '@/lib/supabase';
+import { createRouteHandlerClient, createServiceRoleClient } from '@/lib/supabase';
 import { serverDecrypt } from '@/lib/encryption';
 import { streamText } from 'ai';
 import {
@@ -10,135 +10,119 @@ import { createModel, type ProviderId, PROVIDERS } from '@/lib/providers';
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string };
 
+// Fast local JWT validation — no HTTP round trip to Supabase
+async function getSession(request: NextRequest, response: NextResponse) {
+  const supabase = createRouteHandlerClient(request, response);
+  const { data: { session } } = await supabase.auth.getSession();
+  return session;
+}
+
 async function getUserApiKey(userId: string, provider: string): Promise<string | null> {
   try {
     const db = createServiceRoleClient();
-    const { data } = await db
-      .from('api_keys')
-      .select('encrypted_key, iv, tag, salt')
-      .eq('user_id', userId)
-      .eq('provider', provider)
-      .eq('is_active', true)
-      .single();
-    if (!data) return null;
-    // Map DB snake_case to interface camelCase
-    return await serverDecrypt({
-      encryptedKey: data.encrypted_key,
-      iv: data.iv,
-      tag: data.tag,
-      salt: data.salt,
-    });
+    const { data, error } = await db.from('api_keys').select('*')
+      .eq('user_id', userId).eq('provider', provider).eq('is_active', true).single();
+    if (error || !data) return null;
+    return await serverDecrypt({ encryptedKey: data.encrypted_key, iv: data.iv, tag: data.tag, salt: data.salt });
   } catch { return null; }
 }
 
-// Fire-and-forget helpers — never block the stream
-function saveMessageAsync(conversationId: string, userId: string, role: string, content: string, tokensUsed = 0) {
-  void createServiceRoleClient()
-    .from('messages')
-    .insert({ conversation_id: conversationId, user_id: userId, role, content, tokens_used: tokensUsed });
+// Non-blocking fire-and-forget saves
+function saveAsync(conversationId: string, userId: string, role: string, content: string, tokens = 0) {
+  Promise.resolve(
+    createServiceRoleClient().from('messages')
+      .insert({ conversation_id: conversationId, user_id: userId, role, content, tokens_used: tokens })
+  ).then(({ error }) => { if (error) console.error('[save]', error?.message); })
+   .catch(e => console.error('[save]', e));
 }
 
-function updateConversationAsync(conversationId: string, provider: string, model: string) {
-  void createServiceRoleClient()
-    .from('conversations')
-    .update({ provider, last_model: model, updated_at: new Date().toISOString() })
-    .eq('id', conversationId);
-}
-
-function runSummarizationAsync(conversationId: string, userId: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  void fetch(`${baseUrl}/api/summarize`, {
+function summarizeAsync(conversationId: string, userId: string) {
+  const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  fetch(`${base}/api/summarize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ conversationId, userId }),
-  }).then(async r => {
-    if (!r.ok) return;
-    const d = await r.json().catch(() => null);
-    if (d?.data?.netTokensSaved > 0)
-      console.log(`[Blackboard] ✅ Saved ${d.data.netTokensSaved} tokens`);
-  }).catch(e => console.error('[Blackboard] Error:', e));
+  }).then(r => r.ok ? r.json() : null)
+    .then(d => { if (d?.data?.netTokensSaved > 0) console.log(`[Blackboard] ✅ ${d.data.netTokensSaved} tokens saved`); })
+    .catch(e => console.error('[summarize]', e));
 }
 
 export async function POST(request: NextRequest) {
   const response = NextResponse.next();
+
   try {
-    // Parse auth + body in parallel
-    const [user, body] = await Promise.all([
-      getAuthUser(request, response),
+    // ── Parallel: parse body + validate session ────────────────────────
+    const [bodyData, session] = await Promise.all([
       request.json(),
+      getSession(request, response),
     ]);
 
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { message, conversationId, model = 'gpt-4o-mini', provider = 'openai', systemPrompt } = body;
+    const { message, conversationId, model = 'gpt-4o-mini', provider = 'openai', systemPrompt } = bodyData;
     if (!message?.trim()) return NextResponse.json({ error: 'Message is required' }, { status: 400 });
-    const userId = user.id;
 
-    // Fetch API key + conversation context in parallel — biggest speedup
-    const [apiKey, ctx, convCheck] = await Promise.all([
-      getUserApiKey(userId, provider),
-      conversationId ? getConversationContext(conversationId, userId) : Promise.resolve(null),
-      conversationId
-        ? createServiceRoleClient().from('conversations').select('id').eq('id', conversationId).eq('user_id', userId).maybeSingle()
-        : Promise.resolve({ data: true, error: null }),
-    ]);
+    const userId = session.user.id;
+    const db = createServiceRoleClient();
+
+    // ── Parallel: fetch API key + conversation context ─────────────────
+    const parallelTasks: Promise<any>[] = [getUserApiKey(userId, provider)];
+    if (conversationId) {
+      parallelTasks.push(
+        Promise.resolve(db.from('conversations').select('id').eq('id', conversationId).eq('user_id', userId).single()),
+        getConversationContext(conversationId, userId),
+      );
+    }
+
+    const [apiKey, convResult, ctx] = await Promise.all(parallelTasks);
 
     if (!apiKey) {
-      const providerName = PROVIDERS.find(p => p.id === provider)?.name || provider;
-      return NextResponse.json({
-        error: 'No API key found',
-        message: `Please add your ${providerName} API key in Settings.`
-      }, { status: 400 });
+      const name = PROVIDERS.find(p => p.id === provider)?.name || provider;
+      return NextResponse.json({ error: 'No API key', message: `Add your ${name} API key in Settings.` }, { status: 400 });
     }
 
-    if (conversationId && !convCheck.data) {
-      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
-    }
-
-    // Non-critical update — fire-and-forget
-    if (conversationId) updateConversationAsync(conversationId, provider, model);
-
-    // Build context
-    let systemContent = systemPrompt || 'You are a helpful, knowledgeable AI assistant.';
-    let contextMessages: ChatMessage[] = [];
-
-    if (ctx) {
-      if (ctx.summary) {
-        systemContent += `\n\n=== CONVERSATION HISTORY (summarized) ===\n${ctx.summary}\n=== END SUMMARY ===\n\nContinue naturally.`;
+    if (conversationId) {
+      if (convResult?.error || !convResult?.data) {
+        return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
       }
-      contextMessages = ctx.recentMessages.map(m => ({
-        role: m.role as 'user' | 'assistant' | 'system',
-        content: m.content,
-      }));
+      // Update metadata — fire and forget, don't await
+      Promise.resolve(db.from('conversations').update({ provider, last_model: model, updated_at: new Date().toISOString() }).eq('id', conversationId)).then(() => {}).catch(() => {});
     }
+
+    // ── Build AI messages ──────────────────────────────────────────────
+    let systemContent = systemPrompt || 'You are a helpful, knowledgeable AI assistant.';
+    if (ctx?.summary) {
+      systemContent += `\n\n=== CONVERSATION HISTORY (summarized) ===\n${ctx.summary}\n=== END SUMMARY ===\n\nContinue naturally.`;
+    }
+
+    const contextMessages: ChatMessage[] = (ctx?.recentMessages || []).map((m: any) => ({
+      role: m.role as 'user' | 'assistant' | 'system',
+      content: m.content,
+    }));
 
     const aiMessages: ChatMessage[] = [
       { role: 'system', content: systemContent },
       ...contextMessages,
-      { role: 'user', content: message },
+      { role: 'user', content: message.trim() },
     ];
 
-    const est = estimateMessagesTokenCount(aiMessages.map(m => ({ id: '', role: m.role, content: m.content })));
-    console.log(`[Chat] 📤 ${provider}/${model} | ~${est} tokens | ${contextMessages.length}/${MAX_RECENT_MESSAGES} msgs`);
+    console.log(`[Chat] 📤 ${provider}/${model} | ~${estimateMessagesTokenCount(aiMessages.map(m => ({ id: '', role: m.role, content: m.content })))} tokens | ${contextMessages.length}/${MAX_RECENT_MESSAGES} msgs`);
 
-    // Save user message async — doesn't delay stream start
-    if (conversationId) saveMessageAsync(conversationId, userId, 'user', message);
+    // ── Save user message async (doesn't block streaming) ─────────────
+    if (conversationId) saveAsync(conversationId, userId, 'user', message.trim());
 
-    // START STREAM immediately
-    const aiModel = createModel(provider as ProviderId, apiKey, model);
+    // ── Stream ─────────────────────────────────────────────────────────
     const result = await streamText({
-      model: aiModel,
+      model: createModel(provider as ProviderId, apiKey, model),
       messages: aiMessages,
       onFinish: async (completion) => {
         if (!conversationId) return;
-        saveMessageAsync(conversationId, userId, 'assistant', completion.text, completion.usage?.totalTokens || 0);
-        try {
-          const userCount = await getUserMessageCount(conversationId, userId);
-          if (shouldSummarize(userCount)) {
-            console.log(`[Blackboard] 🔄 Summarizing at ${userCount} msgs`);
-            runSummarizationAsync(conversationId, userId);
-          }
-        } catch {}
+        saveAsync(conversationId, userId, 'assistant', completion.text, completion.usage?.totalTokens || 0);
+        const userCount = await getUserMessageCount(conversationId, userId);
+        if (shouldSummarize(userCount)) {
+          console.log(`[Blackboard] 🔄 Trigger at ${userCount} msgs`);
+          summarizeAsync(conversationId, userId);
+        }
       },
     });
 
@@ -156,22 +140,17 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const response = NextResponse.next();
   try {
-    const user = await getAuthUser(request, response);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const { searchParams } = new URL(request.url);
-    const conversationId = searchParams.get('conversationId');
-    if (!conversationId) return NextResponse.json({ error: 'Conversation ID required' }, { status: 400 });
-    const { data: messages, error } = await createServiceRoleClient()
+    const session = await getSession(request, response);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const convId = new URL(request.url).searchParams.get('conversationId');
+    if (!convId) return NextResponse.json({ error: 'Conversation ID required' }, { status: 400 });
+    const { data, error } = await createServiceRoleClient()
       .from('messages').select('*')
-      .eq('conversation_id', conversationId).eq('user_id', user.id)
+      .eq('conversation_id', convId).eq('user_id', session.user.id)
       .order('created_at', { ascending: true });
-    if (error) return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 });
-    return NextResponse.json({ messages: messages || [] });
+    if (error) return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
+    return NextResponse.json({ messages: data || [] });
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-
-// Vercel Edge Runtime — no cold starts, runs at edge globally
-// This alone can cut 200-400ms from first request
-export const runtime = 'edge';
