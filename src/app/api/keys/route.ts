@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser, createServiceRoleClient } from '@/lib/supabase';
+import { getAuthSession, createServiceRoleClient } from '@/lib/supabase';
 import { serverEncrypt } from '@/lib/encryption';
 import { validateApiKey, type ProviderId } from '@/lib/providers';
 
 export async function POST(request: NextRequest) {
   const response = NextResponse.next();
   try {
-    const user = await getAuthUser(request, response);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const [session, body] = await Promise.all([
+      getAuthSession(request, response),
+      request.json(),
+    ]);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { apiKey, provider = 'openai' } = await request.json();
+    const { apiKey, provider = 'openai' } = body;
     if (!apiKey?.trim()) return NextResponse.json({ error: 'API key is required' }, { status: 400 });
 
     const validation = validateApiKey(provider as ProviderId, apiKey.trim());
@@ -20,7 +23,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await db
       .from('api_keys')
       .upsert({
-        user_id: user.id,
+        user_id: session.user.id,
         provider,
         encrypted_key: encryptedData.encryptedKey,
         iv: encryptedData.iv,
@@ -41,14 +44,14 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const response = NextResponse.next();
   try {
-    const user = await getAuthUser(request, response);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const session = await getAuthSession(request, response);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const db = createServiceRoleClient();
     const { data, error } = await db
       .from('api_keys')
       .select('id, provider, is_active, created_at, updated_at')
-      .eq('user_id', user.id)
+      .eq('user_id', session.user.id)
       .eq('is_active', true)
       .order('created_at', { ascending: true });
 
@@ -62,14 +65,16 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const response = NextResponse.next();
   try {
-    const user = await getAuthUser(request, response);
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const [session, body] = await Promise.all([
+      getAuthSession(request, response),
+      request.json(),
+    ]);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { provider } = await request.json();
+    const { provider } = body;
     if (!provider) return NextResponse.json({ error: 'Provider required' }, { status: 400 });
 
-    const db = createServiceRoleClient();
-    await db.from('api_keys').delete().eq('user_id', user.id).eq('provider', provider);
+    await createServiceRoleClient().from('api_keys').delete().eq('user_id', session.user.id).eq('provider', provider);
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
