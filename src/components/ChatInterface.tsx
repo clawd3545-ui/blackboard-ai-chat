@@ -131,9 +131,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
 
   const loadBlackboardStatus = async (convId: string) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const r = await fetch(`/api/summarize?conversationId=${convId}&userId=${session.user.id}`);
+      const r = await fetch(`/api/summarize?conversationId=${convId}`);
       if (r.ok) {
         const d = await r.json();
         if (d.data && (d.data.message_count > 0 || d.data.total_tokens_saved > 0)) {
@@ -143,7 +141,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
     } catch {}
   };
 
-  const createConversation = async (firstMessage: string): Promise<string> => {
+  const createConversation = useCallback(async (firstMessage: string): Promise<string> => {
     const title = firstMessage.slice(0, 60) + (firstMessage.length > 60 ? "..." : "");
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error("Not authenticated");
@@ -153,7 +151,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
     setCurrentConversationId(data.id);
     onConversationCreated?.(data.id, title);
     return data.id;
-  };
+  }, [selectedModel, selectedProvider]);
 
   const sendMessage = useCallback(async (text: string, isRegenerate = false) => {
     if (!text.trim() || isLoading) return;

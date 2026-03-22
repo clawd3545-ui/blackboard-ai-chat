@@ -46,8 +46,7 @@ export default function OnboardingPage() {
     } finally { setSaving(false); }
   };
 
-  const handleSkip = async () => {
-    await supabase.from("profiles").update({ onboarded: true }).eq("id", (await supabase.auth.getUser()).data.user?.id || "");
+  const handleSkip = () => {
     router.push("/dashboard");
   };
 

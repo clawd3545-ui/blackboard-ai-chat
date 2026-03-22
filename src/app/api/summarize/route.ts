@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient, createRouteHandlerClient } from '@/lib/supabase';
+import { createServiceRoleClient, createRouteHandlerClient, getAuthUser } from '@/lib/supabase';
 import { serverDecrypt } from '@/lib/encryption';
 import OpenAI from 'openai';
 import { calculateTokenSavings, type Message, getUnsummarizedMessages } from '@/lib/blackboard';
@@ -211,15 +211,25 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const response = NextResponse.next();
   try {
+    // SECURITY FIX: verify session — never trust userId from query params
+    const user = await getAuthUser(request, response);
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { searchParams } = new URL(request.url);
     const conversationId = searchParams.get('conversationId');
-    const userId = searchParams.get('userId');
-    if (!conversationId || !userId) return NextResponse.json({ error: 'conversationId and userId required' }, { status: 400 });
+    if (!conversationId) return NextResponse.json({ error: 'conversationId required' }, { status: 400 });
+
     const db = createServiceRoleClient();
+    // Verify user owns this conversation first
+    const { data: conv } = await db.from('conversations')
+      .select('id').eq('id', conversationId).eq('user_id', user.id).single();
+    if (!conv) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
     const { data } = await db.from('blackboard')
       .select('summary, message_count, total_tokens_saved, original_tokens, summarized_tokens, updated_at')
-      .eq('conversation_id', conversationId).eq('user_id', userId).single();
+      .eq('conversation_id', conversationId).eq('user_id', user.id).single();
     return NextResponse.json({ success: true, data });
   } catch { return NextResponse.json({ error: 'Failed to get summary' }, { status: 500 }); }
 }

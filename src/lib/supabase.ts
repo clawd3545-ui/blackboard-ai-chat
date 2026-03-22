@@ -1,7 +1,8 @@
 import { createBrowserClient as createSSRBrowserClient, createServerClient, type CookieOptions } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
+// Browser client (cookie-based sessions)
 export function createBrowserClient() {
   return createSSRBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,6 +10,7 @@ export function createBrowserClient() {
   );
 }
 
+// Route handler client (per-request, for cookie auth)
 export function createRouteHandlerClient(request: NextRequest, response: NextResponse) {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,30 +25,37 @@ export function createRouteHandlerClient(request: NextRequest, response: NextRes
   );
 }
 
-export function createServiceRoleClient() {
-  return createClient(
+// Singleton service role client (bypasses RLS — server only)
+let _serviceRoleClient: SupabaseClient | null = null;
+export function createServiceRoleClient(): SupabaseClient {
+  if (_serviceRoleClient) return _serviceRoleClient;
+  _serviceRoleClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
+  return _serviceRoleClient;
 }
 
 // ============================================
-// FAST AUTH — getSession() validates JWT locally
-// No external HTTP call = ~100-200ms faster
-// Safe for API routes that also validate ownership
-// via service role DB queries (auth.uid() = user_id)
+// AUTH HELPERS
+// getAuthSession: fast local JWT validation (no network call)
+//   → safe when you also verify ownership via service role queries
+//   → used by: /api/keys, /api/blackboard/savings
+// getAuthUser: server-verified (network call to Supabase auth)
+//   → use for sensitive operations: chat, payments, plan changes
+//   → slightly slower but tamper-proof
 // ============================================
+
 export async function getAuthSession(request: NextRequest, response: NextResponse) {
   const supabase = createRouteHandlerClient(request, response);
   const { data: { session } } = await supabase.auth.getSession();
-  return session;
+  return session; // returns null if not logged in
 }
 
-// Keep getAuthUser for cases where strict server verification needed
 export async function getAuthUser(request: NextRequest, response: NextResponse) {
   const supabase = createRouteHandlerClient(request, response);
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return null;
-  return user;
+  return user; // server-verified, tamper-proof
 }
