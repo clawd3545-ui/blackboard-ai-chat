@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Brain, Check, X, Zap, Shield, Users, Sparkles, ArrowRight } from "lucide-react";
+import { Check, X, Zap, Shield, Users, Sparkles, ArrowRight } from "lucide-react";
+import { Logo } from "@/components/Logo";
 
 export const metadata = { title: "Pricing — Blackboard AI", description: "Simple, transparent pricing. Start free, upgrade when you need more." };
 
@@ -57,9 +58,7 @@ export default function PricingPage() {
       <header className="border-b border-border">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-semibold hover:opacity-80 transition-opacity">
-            <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
-              <Brain className="h-4 w-4 text-primary-foreground" />
-            </div>
+            <Logo size={28} />
             Blackboard AI
           </Link>
           <div className="flex items-center gap-3">

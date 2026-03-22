@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Brain } from "lucide-react";
+import { Logo } from "@/components/Logo";
 
 const NAV_LINKS = [
   { href: "/pricing", label: "Pricing" },
@@ -22,9 +22,7 @@ export default function PublicLayout({ children, title }: { children: React.Reac
       <header className="border-b border-border">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-semibold text-foreground hover:opacity-80 transition-opacity">
-            <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
-              <Brain className="h-4 w-4 text-primary-foreground" />
-            </div>
+            <Logo size={28} />
             Blackboard AI
           </Link>
           <nav className="flex items-center gap-1">
@@ -52,7 +50,7 @@ export default function PublicLayout({ children, title }: { children: React.Reac
         <div className="max-w-4xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <div className="h-5 w-5 rounded bg-primary/20 flex items-center justify-center">
-              <Brain className="h-3 w-3 text-primary" />
+              <Logo size={14} />
             </div>
             <span>© 2026 Blackboard AI. All rights reserved.</span>
           </div>

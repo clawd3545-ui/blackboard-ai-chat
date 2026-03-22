@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Brain, Zap, Shield, ChevronRight, ArrowRight } from "lucide-react";
+import { Zap, Shield, ChevronRight, ArrowRight } from "lucide-react";
+import { Logo } from "@/components/Logo";
 
 export default function HomePage() {
   return (
@@ -7,9 +8,7 @@ export default function HomePage() {
       <header className="border-b border-border">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2 font-semibold">
-            <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
-              <Brain className="h-4 w-4 text-primary-foreground" />
-            </div>
+            <Logo size={28} />
             Blackboard AI
           </div>
           <div className="flex items-center gap-4">
@@ -23,9 +22,7 @@ export default function HomePage() {
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-20 text-center">
-        <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
-          <Brain className="h-9 w-9 text-primary" />
-        </div>
+        <div className="mb-6"><Logo size={64} /></div>
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4 max-w-2xl">
           AI Chat that saves<br className="hidden sm:block" /> your tokens automatically
         </h1>
@@ -43,12 +40,12 @@ export default function HomePage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl w-full">
           {[
-            { icon: Brain, title: "Blackboard Memory", desc: "Auto-compresses every 5 messages. 60–90% fewer tokens on long chats." },
+            { icon: null, title: "Blackboard Memory", desc: "Auto-compresses every 5 messages. 60–90% fewer tokens on long chats." },
             { icon: Zap, title: "5 AI Providers", desc: "OpenAI, Claude, Gemini, DeepSeek, Groq. Switch anytime without losing context." },
             { icon: Shield, title: "Your Keys, Encrypted", desc: "AES-256-GCM encryption. Your keys never touch our database in plaintext." },
           ].map(({ icon: Icon, title, desc }) => (
             <div key={title} className="p-5 rounded-xl border border-border bg-muted/20 text-left">
-              <Icon className="h-5 w-5 text-primary mb-3" />
+              {Icon ? <Icon className="h-5 w-5 text-primary mb-3" /> : <Logo size={20} className="mb-3" />}
               <p className="font-semibold text-sm mb-1">{title}</p>
               <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
             </div>

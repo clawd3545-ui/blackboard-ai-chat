@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus, Settings, LogOut, MessageSquare, Trash2, Loader2,
-  User, Sun, Moon, Menu, X, Brain, ChevronDown,
+  User, Sun, Moon, Menu, X, ChevronDown,
   Sparkles, Zap, Shield
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { createBrowserClient } from "@/lib/supabase";
 import ChatInterface from "@/components/ChatInterface";
 import SettingsDialog from "@/components/Settings";
+import { Logo } from "@/components/Logo";
 import { PROVIDERS, type ProviderId } from "@/lib/providers";
 
 interface Conversation { id: string; title: string; created_at: string; updated_at: string; }
@@ -114,7 +115,7 @@ export default function DashboardPage() {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <div className="flex flex-col items-center gap-3">
-          <Brain className="h-10 w-10 text-primary animate-pulse" />
+          <Logo size={40} />
           <p className="text-sm text-muted-foreground">Loading...</p>
         </div>
       </div>
@@ -132,9 +133,7 @@ export default function DashboardPage() {
         {/* Logo + toggle */}
         <div className="flex items-center justify-between px-3 py-3 border-b border-border">
           <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
-              <Brain className="h-4 w-4 text-primary-foreground" />
-            </div>
+            <Logo size={28} />
             <span className="font-semibold text-sm">Blackboard AI</span>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="p-1 rounded hover:bg-muted text-muted-foreground">
@@ -248,7 +247,7 @@ export default function DashboardPage() {
             </button>
             <div className="flex items-center gap-2">
               <div className="h-6 w-6 rounded bg-primary flex items-center justify-center">
-                <Brain className="h-3.5 w-3.5 text-primary-foreground" />
+                <Logo size={14} />
               </div>
               <span className="font-semibold text-sm">Blackboard AI</span>
             </div>

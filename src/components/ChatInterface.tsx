@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Loader2, User, Brain, Zap, ChevronDown, Sparkles } from "lucide-react";
+import { Send, Loader2, User, Zap, ChevronDown } from "lucide-react";
+import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { createBrowserClient } from "@/lib/supabase";
 import { PROVIDERS, type ProviderId } from "@/lib/providers";
@@ -188,7 +189,7 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
       {/* ALWAYS-VISIBLE BLACKBOARD STATUS BAR */}
       <div className="shrink-0 border-b border-border px-4 py-2 flex items-center gap-4 bg-muted/10">
         <div className="flex items-center gap-1.5">
-          <Brain className="h-3.5 w-3.5 text-blue-500" />
+          <Logo size={14} />
           <span className="text-xs font-medium text-foreground">Blackboard</span>
         </div>
         {isSummarizing ? (
@@ -215,9 +216,7 @@ export default function ChatInterface({ conversationId, onConversationCreated, o
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-4 pb-24">
-            <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
-              <Brain className="h-8 w-8 text-primary" />
-            </div>
+            <div className="mb-5"><Logo size={56} /></div>
             <h1 className="text-2xl font-semibold text-foreground mb-2">How can I help you?</h1>
             <p className="text-sm text-muted-foreground mb-8 text-center">
               <span className="font-medium text-foreground">{currentProvider?.logo} {currentModelName}</span>
