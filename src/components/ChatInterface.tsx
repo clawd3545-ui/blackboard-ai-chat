@@ -25,26 +25,22 @@ const STARTER_PROMPTS = [
   { icon: "📊", label: "Analyze data", prompt: "Help me analyze this data and give me key insights." },
 ];
 
-// Markdown message renderer
 function MessageContent({ content, role }: { content: string; role: string }) {
   if (role === "user") return <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{content}</p>;
   return (
     <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed
-      prose-p:my-1.5 prose-p:leading-relaxed
-      prose-headings:font-semibold prose-headings:mt-3 prose-headings:mb-1
+      prose-p:my-1.5 prose-headings:font-semibold prose-headings:mt-3 prose-headings:mb-1
       prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[11px] prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
       prose-pre:bg-muted/80 prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:p-3 prose-pre:overflow-x-auto prose-pre:my-2
       prose-pre:code:bg-transparent prose-pre:code:p-0 prose-pre:code:text-xs
       prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5
       prose-blockquote:border-l-2 prose-blockquote:border-primary/40 prose-blockquote:pl-3 prose-blockquote:my-2 prose-blockquote:text-muted-foreground
-      prose-table:text-xs prose-th:bg-muted/50 prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1
       prose-strong:font-semibold prose-a:text-primary prose-a:no-underline hover:prose-a:underline">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
     </div>
   );
 }
 
-// Copy button with check animation
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -64,8 +60,11 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [currentConversationId, setCurrentConversationId] = useState<string | undefined>(conversationId);
-  const [blackboard, setBlackboard] = useState<NexChatStatus | null>(null);
+  // Track the conversation ID we're actively using (may differ from prop during creation)
+  const [activeConvId, setActiveConvId] = useState<string | undefined>(conversationId);
+  // Flag to skip loadMessages when we just created a conversation mid-stream
+  const skipNextLoadRef = useRef(false);
+  const [nexChatStatus, setNexChatStatus] = useState<NexChatStatus | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>("openai");
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
@@ -83,40 +82,49 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
+  // When conversationId prop changes (user clicks sidebar)
   useEffect(() => {
+    if (conversationId === activeConvId) return; // no change
+
     if (conversationId) {
-      setCurrentConversationId(conversationId);
+      // Switching to an existing conversation
+      if (skipNextLoadRef.current) {
+        // We just created this conversation during a send — messages already in state
+        skipNextLoadRef.current = false;
+        setActiveConvId(conversationId);
+        return;
+      }
+      setActiveConvId(conversationId);
+      setMessages([]);
       loadMessages(conversationId);
       loadNexChatStatus(conversationId);
     } else {
+      // New chat
+      setActiveConvId(undefined);
       setMessages([]);
-      setCurrentConversationId(undefined);
-      setBlackboard(null);
+      setNexChatStatus(null);
     }
   }, [conversationId]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
+  // Load keys + plan on mount
   useEffect(() => {
     Promise.all([
-      fetch("/api/keys").then(r => r.json()).then(d => { if (d.keys) setSavedProviders(d.keys.map((k: any) => k.provider)); }).catch(() => {}),
+      fetch("/api/keys").then(r => r.json()).then(d => {
+        if (d.keys) {
+          const providers: string[] = d.keys.map((k: any) => k.provider);
+          setSavedProviders(providers);
+        }
+      }).catch(() => {}),
       fetch("/api/user/plan").then(r => r.json()).then(d => { if (!d.error) setPlanInfo(d); }).catch(() => {}),
     ]);
   }, []);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) setModelPickerOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  // AUTO-SELECT: when savedProviders loads, pick first available provider
+  // Auto-select first provider with a key
   useEffect(() => {
     if (savedProviders.length === 0 || hasAutoSelected) return;
-    // Find first provider that has a saved key
     const firstAvailable = PROVIDERS.find(p => savedProviders.includes(p.id));
     if (firstAvailable) {
       setSelectedProvider(firstAvailable.id as ProviderId);
@@ -126,11 +134,18 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
     }
   }, [savedProviders]);
 
-  // Keyboard shortcut: Escape = stop generation
+  // Close model picker on outside click
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isLoading) { abortRef.current?.abort(); }
+    const handler = (e: MouseEvent) => {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) setModelPickerOpen(false);
     };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Esc = stop generation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape" && isLoading) abortRef.current?.abort(); };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [isLoading]);
@@ -149,23 +164,26 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
       if (r.ok) {
         const d = await r.json();
         if (d.data && (d.data.message_count > 0 || d.data.total_tokens_saved > 0)) {
-          setBlackboard({ hasSummary: !!d.data.summary, messagesSummarized: d.data.message_count || 0, totalTokensSaved: d.data.total_tokens_saved || 0 });
+          setNexChatStatus({ hasSummary: !!d.data.summary, messagesSummarized: d.data.message_count || 0, totalTokensSaved: d.data.total_tokens_saved || 0 });
         }
       }
     } catch {}
   };
 
-  const createConversation = useCallback(async (firstMessage: string): Promise<string> => {
+  const createConversation = async (firstMessage: string): Promise<string> => {
     const title = firstMessage.slice(0, 60) + (firstMessage.length > 60 ? "..." : "");
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error("Not authenticated");
     const { data, error } = await supabase.from("conversations")
       .insert({ title, model: selectedModel, provider: selectedProvider, user_id: session.user.id }).select().single();
     if (error) throw error;
-    setCurrentConversationId(data.id);
+    // Tell dashboard about new conversation (sidebar update)
+    // Set flag so the subsequent conversationId prop change doesn't reload messages
+    skipNextLoadRef.current = true;
+    setActiveConvId(data.id);
     onConversationCreated?.(data.id, title);
     return data.id;
-  }, [selectedModel, selectedProvider]);
+  };
 
   const sendMessage = useCallback(async (text: string, isRegenerate = false) => {
     if (!text.trim() || isLoading) return;
@@ -175,12 +193,18 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
     if (!isRegenerate) {
       setInput("");
       if (inputRef.current) inputRef.current.style.height = "auto";
-      setMessages(prev => [...prev, { id: `temp-${Date.now()}`, role: "user", content: userMessage, created_at: new Date().toISOString() }]);
+      // Add user message to UI immediately
+      setMessages(prev => [...prev, {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: userMessage,
+        created_at: new Date().toISOString()
+      }]);
     }
     setIsLoading(true);
 
     try {
-      let convId = currentConversationId;
+      let convId = activeConvId;
       if (!convId) convId = await createConversation(userMessage);
 
       abortRef.current = new AbortController();
@@ -193,53 +217,77 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        if (response.status === 429 || err.error === "limit_reached") { setShowUpgradeModal(true); if (!isRegenerate) setMessages(prev => prev.slice(0, -1)); return; }
+        if (response.status === 429 || err.error === "limit_reached") {
+          setShowUpgradeModal(true);
+          if (!isRegenerate) setMessages(prev => prev.slice(0, -1));
+          return;
+        }
         throw new Error(err.message || err.error || "Failed to get response");
       }
 
+      // Add empty assistant message placeholder
       const assistantId = `assistant-${Date.now()}`;
-      setMessages(prev => [...prev, { id: assistantId, role: "assistant", content: "", created_at: new Date().toISOString() }]);
+      setMessages(prev => [...prev, {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        created_at: new Date().toISOString()
+      }]);
 
+      // Read stream
       const reader = response.body?.getReader();
-      if (!reader) throw new Error("No stream");
+      if (!reader) throw new Error("No response stream");
       const decoder = new TextDecoder();
       let fullContent = "";
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        fullContent += decoder.decode(value, { stream: true });
-        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+        const chunk = decoder.decode(value, { stream: true });
+        fullContent += chunk;
+        // Update the assistant message content in real-time
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId ? { ...m, content: fullContent } : m
+        ));
       }
 
-      // NOTE: Do NOT call loadMessages here!
-      // saveMessageAsync is fire-and-forget — DB save happens after stream ends.
-      // Calling loadMessages immediately returns stale/empty data and OVERWRITES
-      // the streamed content already showing in UI. Streamed content is correct as-is.
+      // Stream done — content is in UI. 
+      // Refresh plan usage
       fetch("/api/user/plan").then(r => r.json()).then(d => { if (!d.error) setPlanInfo(d); }).catch(() => {});
+      // Check token savings after delay (DB saves happen async)
       setIsSummarizing(true);
-      setTimeout(async () => { await loadNexChatStatus(convId!); setIsSummarizing(false); }, 3000);
+      setTimeout(async () => {
+        if (convId) await loadNexChatStatus(convId);
+        setIsSummarizing(false);
+      }, 3500);
 
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        // Keep whatever was streamed — only remove empty assistant placeholder
         setMessages(prev => prev.filter(m => !(m.role === "assistant" && m.content === "")));
         toast("Generation stopped");
         return;
       }
       const msg = error instanceof Error ? error.message : "Something went wrong";
       toast.error(msg);
-      setMessages(prev => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: `❌ ${msg}` }]);
+      setMessages(prev => [...prev, {
+        id: `err-${Date.now()}`,
+        role: "assistant",
+        content: `❌ ${msg}`
+      }]);
     } finally {
       setIsLoading(false);
       abortRef.current = null;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [isLoading, currentConversationId, selectedModel, selectedProvider, planInfo]);
+  }, [isLoading, activeConvId, selectedModel, selectedProvider, planInfo]);
 
   const handleRegenerate = () => {
     const lastUserMsg = [...messages].reverse().find(m => m.role === "user");
-    if (!lastUserMsg) return;
-    setMessages(prev => { const idx = prev.map(m => m.id).lastIndexOf(lastUserMsg.id); return prev.slice(0, idx + 1); });
+    if (!lastUserMsg || isLoading) return;
+    setMessages(prev => {
+      const idx = prev.map(m => m.id).lastIndexOf(lastUserMsg.id);
+      return prev.slice(0, idx + 1);
+    });
     sendMessage(lastUserMsg.content, true);
   };
 
@@ -253,7 +301,6 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
     e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px";
   };
 
-  const stopGeneration = () => { abortRef.current?.abort(); };
   const formatTokens = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
   const currentProvider = PROVIDERS.find(p => p.id === selectedProvider);
   const currentModelName = currentProvider?.models.find(m => m.id === selectedModel)?.name || selectedModel;
@@ -278,40 +325,32 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
         </div>
       )}
 
-      {/* NO KEYS BANNER — shown when user hasn't added any API key */}
+      {/* NO KEYS BANNER */}
       {savedProviders.length === 0 && (
         <div className="shrink-0 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
-            <span>⚠️</span>
-            <span>No API key added yet. Add your key to start chatting.</span>
-          </div>
-          <button
-            onClick={() => {
-              // Dispatch custom event to open settings dialog
-              window.dispatchEvent(new CustomEvent('open-settings'));
-            }}
-            className="text-xs font-semibold text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:opacity-80"
-          >
+          <span className="text-xs text-amber-700 dark:text-amber-400">⚠️ No API key added yet. Add your key to start chatting.</span>
+          <button onClick={() => window.dispatchEvent(new CustomEvent('open-settings'))}
+            className="text-xs font-semibold text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:opacity-80">
             Add key →
           </button>
         </div>
       )}
 
-      {/* NEXCHAT STATUS BAR */}
+      {/* SMART MEMORY STATUS BAR */}
       <div className="shrink-0 border-b border-border px-4 py-1.5 flex items-center gap-3 bg-muted/10 min-h-[36px]">
         <div className="flex items-center gap-1.5"><Logo size={14} /><span className="text-xs font-medium">Smart Memory</span></div>
         {isSummarizing ? (
           <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400"><Loader2 className="h-3 w-3 animate-spin" /><span>Compressing...</span></div>
-        ) : blackboard && blackboard.totalTokensSaved > 0 ? (
+        ) : nexChatStatus && nexChatStatus.totalTokensSaved > 0 ? (
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">{blackboard.messagesSummarized} msgs compressed</span>
+            <span className="text-muted-foreground">{nexChatStatus.messagesSummarized} msgs compressed</span>
             <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
               <Zap className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-              <span className="font-semibold text-emerald-700 dark:text-emerald-300">~{formatTokens(blackboard.totalTokensSaved)} tokens saved</span>
+              <span className="font-semibold text-emerald-700 dark:text-emerald-300">~{formatTokens(nexChatStatus.totalTokensSaved)} tokens saved</span>
             </div>
           </div>
         ) : (
-          <span className="text-xs text-muted-foreground hidden sm:block">Compresses every 5 msgs · saves 60–90% tokens</span>
+          <span className="text-xs text-muted-foreground hidden sm:block">Compresses every 5 messages · saves 60–90% tokens</span>
         )}
       </div>
 
@@ -323,7 +362,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
         </div>
       )}
 
-      {/* MESSAGES */}
+      {/* MESSAGES AREA */}
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-4 pb-16">
@@ -355,15 +394,15 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
                   "max-w-[85%] sm:max-w-[78%] rounded-2xl px-3 sm:px-4 py-2.5 relative",
                   msg.role === "user" ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted/50 text-foreground rounded-bl-sm border border-border"
                 )}>
-                  {msg.content
-                    ? <MessageContent content={msg.content} role={msg.role} />
-                    : isLoading && idx === messages.length - 1 && msg.role === "assistant" && (
+                  {msg.content ? (
+                    <MessageContent content={msg.content} role={msg.role} />
+                  ) : (
+                    isLoading && idx === messages.length - 1 && msg.role === "assistant" && (
                       <div className="flex gap-1 items-center h-5">
                         {[0, 150, 300].map(d => <span key={d} className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: `${d}ms` }} />)}
                       </div>
                     )
-                  }
-                  {/* Message actions */}
+                  )}
                   {msg.content && (
                     <div className={cn("absolute top-1 flex items-center gap-0.5", msg.role === "user" ? "-left-10" : "-right-10")}>
                       <CopyButton text={msg.content} />
@@ -377,8 +416,8 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
                 )}
               </div>
             ))}
-            {/* Regenerate button - below last message */}
-            {!isLoading && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && (
+            {/* Regenerate button */}
+            {!isLoading && messages.length > 0 && messages[messages.length - 1]?.role === "assistant" && messages[messages.length - 1]?.content && (
               <div className="flex justify-center">
                 <button onClick={handleRegenerate} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors">
                   <RotateCcw className="h-3 w-3" />Regenerate
@@ -390,17 +429,28 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
         )}
       </div>
 
-      {/* INPUT */}
+      {/* INPUT BAR */}
       <div className="shrink-0 border-t border-border bg-background px-3 sm:px-4 py-3">
         <div className="max-w-3xl mx-auto">
           <div className="flex flex-col rounded-2xl border border-border bg-muted/20 px-3 sm:px-4 pt-3 pb-2 focus-within:border-ring transition-all">
-            <textarea ref={inputRef} value={input} onChange={handleInputChange} onKeyDown={handleKeyDown}
-              placeholder={isAtLimit ? "Upgrade to Pro to continue..." : `Message ${currentModelName}...`}
-              rows={1} disabled={isLoading || !!isAtLimit}
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                isAtLimit ? "Upgrade to Pro to continue chatting..." :
+                savedProviders.length === 0 ? "Add an API key in Settings to start chatting..." :
+                !savedProviders.includes(selectedProvider) ? `No ${currentProvider?.name} key — select a provider with a key ↑` :
+                `Message ${currentModelName}...`
+              }
+              rows={1}
+              disabled={isLoading || !!isAtLimit}
               className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed max-h-52 disabled:opacity-50"
-              style={{ minHeight: "24px" }} />
+              style={{ minHeight: "24px" }}
+            />
             <div className="flex items-center justify-between mt-2">
-              {/* Model switcher */}
+              {/* Model picker */}
               <div className="relative" ref={modelPickerRef}>
                 <button onClick={() => setModelPickerOpen(!modelPickerOpen)}
                   className="flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors max-w-[160px] sm:max-w-none truncate">
@@ -411,65 +461,61 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
                 {modelPickerOpen && (
                   <div className="absolute bottom-full left-0 mb-2 w-72 bg-popover border border-border rounded-xl shadow-xl z-50">
                     <div className="px-3 py-2 border-b border-border"><p className="text-xs font-semibold text-muted-foreground">Select model</p></div>
-                    <div className="max-h-60 overflow-y-auto p-1.5">
-                      {/* Sort: providers WITH keys first, then providers without */}
-                    {[...PROVIDERS].sort((a, b) => {
-                      const aHasKey = savedProviders.includes(a.id);
-                      const bHasKey = savedProviders.includes(b.id);
-                      if (aHasKey && !bHasKey) return -1;
-                      if (!aHasKey && bHasKey) return 1;
-                      return 0;
-                    }).map((provider, providerIdx) => {
-                      const hasKey = savedProviders.includes(provider.id);
-                      const isFirstWithoutKey = !hasKey && PROVIDERS.filter(p => savedProviders.includes(p.id)).length > 0 &&
-                        [...PROVIDERS].sort((a, b) => {
-                          const aHas = savedProviders.includes(a.id);
-                          const bHas = savedProviders.includes(b.id);
-                          return (aHas ? -1 : 1) - (bHas ? -1 : 1);
-                        }).findIndex(p => !savedProviders.includes(p.id)) === providerIdx;
-                      return (
-                        <div key={provider.id}>
-                          {isFirstWithoutKey && (
-                            <div className="mx-1.5 my-1 border-t border-border pt-1">
-                              <p className="px-2 py-0.5 text-[10px] text-muted-foreground">No key added</p>
+                    <div className="max-h-64 overflow-y-auto p-1.5">
+                      {[...PROVIDERS].sort((a, b) => {
+                        const aHas = savedProviders.includes(a.id);
+                        const bHas = savedProviders.includes(b.id);
+                        return aHas === bHas ? 0 : aHas ? -1 : 1;
+                      }).map((provider, idx, arr) => {
+                        const hasKey = savedProviders.includes(provider.id);
+                        const prevHasKey = idx > 0 && savedProviders.includes(arr[idx - 1].id);
+                        const showDivider = !hasKey && prevHasKey;
+                        return (
+                          <div key={provider.id}>
+                            {showDivider && <div className="my-1 border-t border-border pt-1"><p className="px-2 text-[10px] text-muted-foreground">Add key to use</p></div>}
+                            <div className="flex items-center gap-2 px-2 py-1">
+                              <span className="text-sm">{provider.logo}</span>
+                              <span className="text-xs font-semibold text-muted-foreground">{provider.name}</span>
+                              {hasKey
+                                ? <span className="ml-auto text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded">✓ Ready</span>
+                                : <span className="ml-auto text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded">No key</span>
+                              }
                             </div>
-                          )}
-                          <div className="flex items-center gap-2 px-2 py-1">
-                            <span className="text-sm">{provider.logo}</span>
-                            <span className="text-xs font-semibold text-muted-foreground">{provider.name}</span>
-                            {!hasKey && <span className="ml-auto text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded">No key</span>}
-                            {hasKey && <span className="ml-auto text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded">✓ Ready</span>}
-                          </div>
-                          {provider.models.map(model => (
-                            <button key={model.id}
-                              onClick={() => { setSelectedProvider(provider.id as ProviderId); setSelectedModel(model.id); setModelPickerOpen(false); }}
-                              className={cn("w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-colors", selectedProvider === provider.id && selectedModel === model.id ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground")}>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1">
-                                  <span className="font-medium">{model.name}</span>
-                                  {model.isFast && <span className="text-[10px] text-blue-500">⚡</span>}
-                                  {model.isPremium && <span className="text-[10px] text-amber-500">⭐</span>}
+                            {provider.models.map(model => (
+                              <button key={model.id}
+                                onClick={() => { setSelectedProvider(provider.id as ProviderId); setSelectedModel(model.id); setModelPickerOpen(false); }}
+                                className={cn("w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-colors",
+                                  selectedProvider === provider.id && selectedModel === model.id ? "bg-primary/10 text-primary" : "hover:bg-muted text-foreground")}>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-medium">{model.name}</span>
+                                    {model.isFast && <span className="text-[10px] text-blue-500">⚡</span>}
+                                    {model.isPremium && <span className="text-[10px] text-amber-500">⭐</span>}
+                                  </div>
+                                  <p className="text-muted-foreground text-[11px] truncate">{model.description}</p>
                                 </div>
-                                <p className="text-muted-foreground text-[11px] truncate">{model.description}</p>
-                              </div>
-                              {selectedProvider === provider.id && selectedModel === model.id && <div className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />}
-                            </button>
-                          ))}
-                        </div>
-                      );
-                    })}
+                                {selectedProvider === provider.id && selectedModel === model.id && <div className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="px-3 py-2 border-t border-border bg-muted/20"><p className="text-[11px] text-muted-foreground text-center">Context preserved when switching ✓</p></div>
+                    <div className="px-3 py-2 border-t border-border bg-muted/20">
+                      <p className="text-[11px] text-muted-foreground text-center">Context preserved when switching models ✓</p>
+                    </div>
                   </div>
                 )}
               </div>
               <div className="flex items-center gap-1.5">
                 {isLoading && (
-                  <button onClick={stopGeneration} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors" title="Stop (Esc)">
+                  <button onClick={() => abortRef.current?.abort()}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors" title="Stop (Esc)">
                     <Square className="h-3 w-3" /><span className="hidden sm:inline">Stop</span>
                   </button>
                 )}
-                <button onClick={() => sendMessage(input)} disabled={!input.trim() || isLoading || !!isAtLimit}
+                <button onClick={() => sendMessage(input)}
+                  disabled={!input.trim() || isLoading || !!isAtLimit}
                   className={cn("h-8 w-8 rounded-lg flex items-center justify-center transition-all shrink-0",
                     input.trim() && !isLoading && !isAtLimit ? "bg-primary text-primary-foreground hover:opacity-90" : "bg-muted text-muted-foreground cursor-not-allowed")}>
                   {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -478,7 +524,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
             </div>
           </div>
           <p className="text-center text-[11px] text-muted-foreground mt-1.5 hidden sm:block">
-            Enter to send · Shift+Enter new line · Esc to stop
+            Enter to send · Shift+Enter for new line · Esc to stop
           </p>
         </div>
       </div>
