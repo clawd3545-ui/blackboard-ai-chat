@@ -79,7 +79,7 @@ export default function TokenCounter({ conversationId, className }: TokenCounter
         cursor: 'default',
         userSelect: 'none',
       }}
-      title={`Blackboard has saved ~$${dollarSaved} in API costs this session`}
+      title={`NexChat has saved ~$${dollarSaved} in API costs this session`}
     >
       <span style={{ fontSize: '10px' }}>⚡</span>
       <span>{formatNumber(totalSaved)} tokens saved</span>

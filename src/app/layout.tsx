@@ -5,23 +5,29 @@ import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   title: "NexChat — Multi-Model AI Chat with Smart Memory",
-  description: "BYOK AI chat with smart memory compression. Use OpenAI, Claude, Gemini, DeepSeek, Groq, Qwen, MiniMax, Mistral. Save 60-90% tokens automatically.",
-  keywords: ["AI", "Chat", "OpenAI", "Claude", "Gemini", "DeepSeek", "Groq", "Qwen", "BYOK", "Token Saving", "AI Chat", "NexChat"],
+  description: "BYOK AI chat with smart memory compression. Use OpenAI, Claude, Gemini, DeepSeek, Groq, Qwen, MiniMax, Mistral. Save 60–90% tokens automatically.",
+  keywords: ["AI", "Chat", "NexChat", "OpenAI", "Claude", "Gemini", "DeepSeek", "Groq", "Qwen", "BYOK", "Token Saving", "AI Chat"],
   authors: [{ name: "NexChat" }],
   robots: "index, follow",
-  metadataBase: new URL("https://nexchat.in"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://nexchat.in"),
   openGraph: {
     type: "website",
     locale: "en_US",
     title: "NexChat — Multi-Model AI Chat with Smart Memory",
-    description: "BYOK AI chat — use your own API keys for 8 providers. Saves 60-90% tokens automatically.",
+    description: "BYOK AI chat — use your own API keys for 8 AI providers. Saves 60–90% tokens automatically with smart memory compression.",
     siteName: "NexChat",
-    url: "https://nexchat.in",
+    url: process.env.NEXT_PUBLIC_APP_URL || "https://nexchat.in",
   },
   twitter: {
     card: "summary_large_image",
-    title: "NexChat",
-    description: "BYOK AI chat with smart memory compression",
+    title: "NexChat — Multi-Model AI Chat",
+    description: "BYOK AI chat with smart memory compression. 8 providers, 25 models.",
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    apple: "/apple-touch-icon.svg",
   },
 };
 

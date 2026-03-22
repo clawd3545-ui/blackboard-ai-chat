@@ -11,7 +11,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 interface Message { id: string; role: "user" | "assistant" | "system"; content: string; created_at?: string; }
-interface BlackboardStatus { hasSummary: boolean; messagesSummarized: number; totalTokensSaved: number; }
+interface NexChatStatus { hasSummary: boolean; messagesSummarized: number; totalTokensSaved: number; }
 interface PlanInfo { plan: string; messagesUsed: number; monthlyLimit: number; percentUsed: number; isPro: boolean; }
 interface ChatInterfaceProps {
   conversationId?: string;
@@ -65,7 +65,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>(conversationId);
-  const [blackboard, setBlackboard] = useState<BlackboardStatus | null>(null);
+  const [blackboard, setBlackboard] = useState<NexChatStatus | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>("openai");
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
@@ -86,7 +86,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
     if (conversationId) {
       setCurrentConversationId(conversationId);
       loadMessages(conversationId);
-      loadBlackboardStatus(conversationId);
+      loadNexChatStatus(conversationId);
     } else {
       setMessages([]);
       setCurrentConversationId(undefined);
@@ -129,7 +129,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
     } catch {}
   };
 
-  const loadBlackboardStatus = async (convId: string) => {
+  const loadNexChatStatus = async (convId: string) => {
     try {
       const r = await fetch(`/api/summarize?conversationId=${convId}`);
       if (r.ok) {
@@ -200,7 +200,7 @@ export default function ChatInterface({ conversationId, onConversationCreated }:
       await loadMessages(convId);
       fetch("/api/user/plan").then(r => r.json()).then(d => { if (!d.error) setPlanInfo(d); }).catch(() => {});
       setIsSummarizing(true);
-      setTimeout(async () => { await loadBlackboardStatus(convId!); setIsSummarizing(false); }, 2000);
+      setTimeout(async () => { await loadNexChatStatus(convId!); setIsSummarizing(false); }, 2000);
 
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") { setMessages(prev => prev.filter(m => m.content !== "")); return; }
